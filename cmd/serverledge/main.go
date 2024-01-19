@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/grussorusso/serverledge/energy"
 	"log"
 	"net/http"
 	"os"
@@ -26,7 +27,8 @@ import (
 func startAPIServer(e *echo.Echo) {
 	e.Use(middleware.Recover())
 
-	// Routes
+	// Routes -> POST registers a new POST route for a path with matching handler
+	// POST(path string, h HandlerFunc)
 	e.POST("/invoke/:fun", api.InvokeFunction)
 	e.POST("/create", api.CreateFunction)
 	e.POST("/delete", api.DeleteFunction)
@@ -128,6 +130,10 @@ func main() {
 	node.NodeIdentifier = myKey
 
 	go metrics.Init()
+
+	go energy.Init()
+
+	//fmt.Println("====== CIAO!!!!")
 
 	e := echo.New()
 
