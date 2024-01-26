@@ -133,8 +133,6 @@ func main() {
 
 	go energy.Init()
 
-	//fmt.Println("====== CIAO!!!!")
-
 	e := echo.New()
 
 	// Register a signal handler to cleanup things on termination
@@ -150,13 +148,14 @@ func main() {
 			os.Exit(1)
 		}
 	}
-
 	startAPIServer(e)
 
 }
 
+// qui vengono definite policy di scheduling, quindi se voglio aggiungere policy "batteria < 20% -> offloading verso Cloud" la inserisco qui!
 func createSchedulingPolicy() scheduling.Policy {
 	policyConf := config.GetString(config.SCHEDULING_POLICY, "default")
+	//policyConf = "energyaware"
 	log.Printf("Configured policy: %s\n", policyConf)
 	if policyConf == "cloudonly" {
 		return &scheduling.CloudOnlyPolicy{}
@@ -166,6 +165,8 @@ func createSchedulingPolicy() scheduling.Policy {
 		return &scheduling.EdgePolicy{}
 	} else if policyConf == "custom1" {
 		return &scheduling.Custom1Policy{}
+	} else if policyConf == "energyaware" {
+		return &scheduling.EnergyAwarePolicy{}
 	} else {
 		return &scheduling.DefaultLocalPolicy{}
 	}

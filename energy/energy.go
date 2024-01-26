@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,10 +21,17 @@ var (
 	//joule = volt * ampere * secondi
 )
 
+type Battery struct {
+	Value float64
+	Mu    sync.Mutex
+}
+
+var MyBattery = &Battery{}
+
 func Init() {
 	// config battery capacity
 
-	batteryCapacity = 3.2 //capacita batteria viene misurata in mAh
+	batteryCapacity = 3.2 //capacita batteria viene misurata in Ah
 	voltage = 3.7         //volt
 	SoC = 100.0
 	batteryCapacityWh = batteryCapacity * voltage
@@ -34,30 +42,50 @@ func Init() {
 
 func getBattery() {
 
+	count := 0
+	prevRaplWh := 0.0
+	CWh := batteryCapacityWh
 	for {
-		time.Sleep(10 * time.Second)
-		raplValue := readRAPL()
+		time.Sleep(5 * time.Second)
 
-		raplValueFloat, _ := strconv.ParseFloat(strings.TrimSpace(raplValue), 64)
-		raplValueJoule := raplValueFloat / 1000000.0
-		raplValueWh := raplValueFloat / (1000000.0 * 3600)
+		raplUj := readRAPL()
+		currRaplWh := raplUj / (1000000.0 * 3600)
 
-		diff := batteryCapacityWh - raplValueWh
-		batteryPerc := (diff / batteryCapacityWh) * 100.0
+		if count == 0 {
+			prevRaplWh = currRaplWh
+			count = 1
+			continue
+		}
 
-		fmt.Println("======= ", time.Now().String(), " - RAPL [uJ]: ", raplValue, ", RAPL [J]: ", raplValueJoule, ", batteryPerc: ", batteryPerc)
-		fmt.Println("\n")
+		if prevRaplWh > currRaplWh {
+			fmt.Println("ALERT! \n")
+			continue
+		}
+
+		diffWh := currRaplWh - prevRaplWh
+		CWh = CWh - diffWh
+		batteryPercentage := (CWh / batteryCapacityWh) * 100.0
+
+		MyBattery.Mu.Lock()
+		MyBattery.Value = batteryPercentage
+		MyBattery.Mu.Unlock()
+
+		prevRaplWh = currRaplWh
+
+		log.Println("======= ", time.Now().Format("2006-01-02 15:04:05"), " - RAPL [uJ]: ", raplUj, " - batteryPercentage: ", batteryPercentage, "\n\n")
 	}
 
 }
 
-func readRAPL() string {
+func readRAPL() float64 {
 	command := "sudo cat /sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj"
 	output, err := RunCMD(command)
 	if err != nil {
 		log.Fatal("Error in reading RAPL:", err.Error(), "\nOutput :", string(output))
 	}
-	res := string(output[:])
+
+	resStr := string(output[:])
+	res, _ := strconv.ParseFloat(strings.TrimSpace(resStr), 64)
 	return res
 }
 
