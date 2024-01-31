@@ -46,7 +46,8 @@ func getBattery() {
 	prevRaplWh := 0.0
 	CWh := batteryCapacityWh
 	for {
-		time.Sleep(5 * time.Second)
+
+		time.Sleep(60 * time.Second)
 
 		raplUj := readRAPL()
 		currRaplWh := raplUj / (1000000.0 * 3600)
@@ -73,6 +74,7 @@ func getBattery() {
 		prevRaplWh = currRaplWh
 
 		log.Println("======= ", time.Now().Format("2006-01-02 15:04:05"), " - RAPL [uJ]: ", raplUj, " - batteryPercentage: ", batteryPercentage, "\n\n")
+
 	}
 
 }

@@ -36,11 +36,16 @@ func (p *EnergyAwarePolicy) OnArrival(r *scheduledRequest) {
 		}
 	} else { //battery is low
 		//offload to another edge node
-		log.Println("Low battery -> offloading request ")
+		log.Println("Low battery")
 		if r.CanDoOffloading {
 			url := pickEdgeNodeForOffloading(r)
 			if url != "" {
+				log.Println("Offloading request to another Edge node")
 				handleOffload(r, url)
+				return
+			} else { //offload to cloud if no edge node is found
+				log.Println("Offloading request to Cloud")
+				handleCloudOffload(r)
 				return
 			}
 		}
