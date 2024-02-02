@@ -2,9 +2,13 @@ package energy
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	_ "fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -36,7 +40,68 @@ func Init() {
 	SoC = 100.0
 	batteryCapacityWh = batteryCapacity * voltage
 
-	getBattery()
+	getMockBattery()
+	//getBattery()
+
+}
+
+func getMockBattery() {
+	//each edge node can retrieve from mock_server a distinct random battery value between 15.0, 35.0, 55.0
+	//cloud node will get 100.0 as battery value
+
+	hostName, err := os.Hostname() //nodes identify through hostname
+	if err != nil {
+		fmt.Println("Error getting hostname:", err)
+		return
+	}
+
+	//160.80.97.154
+	url := fmt.Sprintf("http://160.80.97.154:8090/mockBattery/?hostName=%s", hostName)
+	response, err := http.Get(url)
+	if err != nil {
+		fmt.Println("Error making GET request:", err)
+		return
+	}
+	defer response.Body.Close()
+
+	// Read the response body
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		fmt.Println("Error reading response body:", err)
+		return
+	}
+
+	var resp map[string]interface{}
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		fmt.Println("error decoding json: ", err)
+		return
+	}
+
+	// Print the decoded JSON data
+	fmt.Println("Decoded JSON:")
+	for key, value := range resp {
+		fmt.Printf("%s: %v\n", key, value)
+	}
+
+	mockBatteryLevel := resp["battery"].(string)
+	fmt.Println("=== battery extracted: ", mockBatteryLevel)
+
+	//now that we have mock battery charge level, we can decrement it by 5% every minute
+	batteryPercentage, err := strconv.ParseFloat(strings.TrimSpace(mockBatteryLevel), 64)
+	decrementStep := (batteryPercentage * 5.0) / 100.0
+
+	for {
+		time.Sleep(60 * time.Second)
+
+		batteryPercentage = batteryPercentage - (decrementStep)
+		MyBattery.Mu.Lock()
+		MyBattery.Value = batteryPercentage
+		MyBattery.Mu.Unlock()
+
+		log.Println("======= ", time.Now().Format("2006-01-02 15:04:05"), "mockBatteryLevel: ", mockBatteryLevel, " - batteryPercentage: ", batteryPercentage, "\n\n")
+
+	}
 
 }
 
@@ -45,6 +110,9 @@ func getBattery() {
 	count := 0
 	prevRaplWh := 0.0
 	CWh := batteryCapacityWh
+
+	getMockBattery()
+
 	for {
 
 		time.Sleep(60 * time.Second)

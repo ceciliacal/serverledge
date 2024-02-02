@@ -21,6 +21,9 @@ func (p *EnergyAwarePolicy) OnArrival(r *scheduledRequest) {
 	batteryValue := myBattery.Value
 	myBattery.Mu.Unlock()
 
+	//aggiungere ai param della request il valore della SoC, che vado a confrontare NELLA FUNZIONE!
+	r.Params["SoC"] = myBattery.Value
+
 	if batteryValue > 20.0 {
 		log.Println("Battery > 20% -> executing request locally ")
 		containerID, err := node.AcquireWarmContainer(r.Fun)
@@ -51,7 +54,7 @@ func (p *EnergyAwarePolicy) OnArrival(r *scheduledRequest) {
 		}
 
 		//if the request cannot be offloaded, then it's dropped
-		log.Println("Request cannot be offloaded -> dropping request ")
+		log.Println("Request cannot be offloaded due to low battery -> dropping request ")
 		dropRequest(r)
 	}
 }
