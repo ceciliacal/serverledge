@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/grussorusso/serverledge/energy"
 	"log"
 	"net"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/grussorusso/serverledge/utils"
 )
 
-//UDPStatusServer listen for incoming request from other edge-nodes which want to retrieve the status of this server
+// UDPStatusServer listen for incoming request from other edge-nodes which want to retrieve the status of this server
 // this listener should be called asynchronously in the main function
 func UDPStatusServer() {
 	hostname := utils.GetIpAddress().String()
@@ -70,6 +71,7 @@ func getCurrentStatusInformation() (status []byte, err error) {
 		AvailableCPUs:           node.Resources.AvailableCPUs,
 		DropCount:               node.Resources.DropCount,
 		Coordinates:             *Reg.Client.GetCoordinate(),
+		SoC:                     energy.ReadBattery(),
 	}
 
 	return json.Marshal(response)

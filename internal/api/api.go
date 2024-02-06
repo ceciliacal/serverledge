@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/grussorusso/serverledge/energy"
 	"io"
 	"log"
 	"net/http"
@@ -202,6 +203,7 @@ func GetServerStatus(c echo.Context) error {
 		AvailableCPUs:  node.Resources.AvailableCPUs,
 		DropCount:      node.Resources.DropCount,
 		Coordinates:    *registration.Reg.Client.GetCoordinate(),
+		SoC:            energy.ReadBattery(),
 	}
 
 	return c.JSON(http.StatusOK, response)

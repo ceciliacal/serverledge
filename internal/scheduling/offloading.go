@@ -97,3 +97,25 @@ func OffloadAsync(r *function.Request, serverUrl string) error {
 	// there is nothing to wait for
 	return nil
 }
+
+func pickEdgeNodeForOffloadingEnergyAware(r *scheduledRequest) (url string) {
+	nearbyServersMap := registration.Reg.NearbyServersMap
+	if nearbyServersMap == nil {
+		return ""
+	}
+
+	//if node has low battery it cannot be picked for offloading
+	//first, search for warm container
+	for _, v := range nearbyServersMap {
+		if v.AvailableWarmContainers[r.Fun.Name] != 0 && v.AvailableCPUs >= r.Request.Fun.CPUDemand && v.SoC > 20.0 {
+			return v.Url
+		}
+	}
+	//second, (nobody has warm container) search for available memory
+	for _, v := range nearbyServersMap {
+		if v.AvailableMemMB >= r.Request.Fun.MemoryMB && v.AvailableCPUs >= r.Request.Fun.CPUDemand && v.SoC > 20.0 {
+			return v.Url
+		}
+	}
+	return ""
+}

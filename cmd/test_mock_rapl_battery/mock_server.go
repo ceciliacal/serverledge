@@ -11,9 +11,14 @@ import (
 	"time"
 )
 
+/*
+this server gives each of 3 edge nodes a random distinct mock battery value between {15.0, 35.0, 55.0}
+it has to run on the server machine on port 8090
+*/
 func main() {
 
-	chargeLevels := []float64{15.0, 35.0, 55.0}
+	//chargeLevels := []float64{15.0, 35.0, 55.0}
+	chargeLevels := []float64{19.0, 18.0, 35.0}
 
 	rand.Seed(time.Now().UnixNano())
 

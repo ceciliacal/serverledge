@@ -32,6 +32,15 @@ type Battery struct {
 
 var MyBattery = &Battery{}
 
+func ReadBattery() float64 {
+
+	MyBattery.Mu.Lock()
+	batteryValue := MyBattery.Value
+	MyBattery.Mu.Unlock()
+
+	return batteryValue
+}
+
 func Init() {
 	// config battery capacity
 
@@ -57,6 +66,7 @@ func getMockBattery() {
 
 	//160.80.97.154
 	url := fmt.Sprintf("http://160.80.97.154:8090/mockBattery/?hostName=%s", hostName)
+	//url := fmt.Sprintf("http://127.0.0.1:8090/mockBattery/?hostName=%s", hostName)
 	response, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Error making GET request:", err)

@@ -22,7 +22,8 @@ func (p *EnergyAwarePolicy) OnArrival(r *scheduledRequest) {
 	myBattery.Mu.Unlock()
 
 	//aggiungere ai param della request il valore della SoC, che vado a confrontare NELLA FUNZIONE!
-	r.Params["SoC"] = myBattery.Value
+	//r.Params["SoC"] = myBattery.Value
+	r.Params["SoC"] = energy.ReadBattery()
 
 	if batteryValue > 20.0 {
 		log.Println("Battery > 20% -> executing request locally ")
@@ -41,12 +42,12 @@ func (p *EnergyAwarePolicy) OnArrival(r *scheduledRequest) {
 		//offload to another edge node
 		log.Println("Low battery")
 		if r.CanDoOffloading {
-			url := pickEdgeNodeForOffloading(r)
+			url := pickEdgeNodeForOffloadingEnergyAware(r)
 			if url != "" {
 				log.Println("Offloading request to another Edge node")
 				handleOffload(r, url)
 				return
-			} else { //offload to cloud if no edge node is found
+			} else { //offload to cloud if no suitable edge node is found
 				log.Println("Offloading request to Cloud")
 				handleCloudOffload(r)
 				return

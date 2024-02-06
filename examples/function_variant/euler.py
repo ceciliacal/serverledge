@@ -38,20 +38,3 @@ def handler(params, context):
         explicit_euler(df, f0, h, N)
         return ''.join("Lower energy consumpation version - Explicit Euler with step size h : "+str(h))
 
-"""        
-    if float(context['SoC'])<=float(context['EnergySavingSoC']): 
-        h=0.01
-        f0 = (0, 0)
-        tn = 13
-        N = int(tn / h)
-        explicit_euler(df, f0, h, N)
-        return ''.join("Explicit Euler with step size h : "+str(h))
-
-    else :
-          h = 0.000001
-          f0 = (0, 0)
-          tn = 13
-          N = int(tn / h)
-          explicit_euler(df, f0, h, N)
-          return ''.join("Explicit Euler with step size h : "+str(h))
-"""

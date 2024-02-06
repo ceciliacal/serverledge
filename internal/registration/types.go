@@ -2,7 +2,6 @@ package registration
 
 import (
 	"errors"
-
 	"github.com/LK4D4/trylock"
 	"github.com/hexablock/vivaldi"
 )
@@ -28,4 +27,5 @@ type StatusInformation struct {
 	AvailableCPUs           float64
 	DropCount               int64
 	Coordinates             vivaldi.Coordinate
+	SoC                     float64
 }
