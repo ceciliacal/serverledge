@@ -33,6 +33,7 @@ const (
 	EXEC_LOCAL                   = 1
 	EXEC_REMOTE                  = 2
 	BEST_EFFORT_EXECUTION        = 3
+	SHUTDOWN                     = 4
 )
 
 type schedulingDecision int64

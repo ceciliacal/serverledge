@@ -15,17 +15,21 @@ func (p *EnergyAwarePolicy) OnCompletion(r *scheduledRequest) {
 }
 
 func (p *EnergyAwarePolicy) OnArrival(r *scheduledRequest) {
+
 	myBattery := energy.MyBattery
 
 	myBattery.Mu.Lock()
 	batteryValue := myBattery.Value
 	myBattery.Mu.Unlock()
 
-	//aggiungere ai param della request il valore della SoC, che vado a confrontare NELLA FUNZIONE!
-	//r.Params["SoC"] = myBattery.Value
-	r.Params["SoC"] = energy.ReadBattery()
+	//batteryValue := energy.ReadBattery()
+	r.Params["SoC"] = batteryValue
 
-	if batteryValue > 20.0 {
+	if batteryValue <= 1.0 {
+		//shut down
+		log.Println("Battery <= 1.0 > -> dropping request ")
+		nodeShutdown(r)
+	} else if batteryValue > 20.0 {
 		log.Println("Battery > 20% -> executing request locally ")
 		containerID, err := node.AcquireWarmContainer(r.Fun)
 

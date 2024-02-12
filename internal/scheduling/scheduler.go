@@ -101,6 +101,8 @@ func SubmitRequest(r *function.Request) error {
 		if err != nil {
 			return err
 		}
+	} else if schedDecision.action == SHUTDOWN {
+		return node.OutOfBatteryErr
 	} else {
 		err = Execute(schedDecision.contID, &schedRequest)
 		if err != nil {
@@ -155,6 +157,10 @@ func handleColdStart(r *scheduledRequest) (isSuccess bool) {
 
 func dropRequest(r *scheduledRequest) {
 	r.decisionChannel <- schedDecision{action: DROP}
+}
+
+func nodeShutdown(r *scheduledRequest) {
+	r.decisionChannel <- schedDecision{action: SHUTDOWN}
 }
 
 func execLocally(r *scheduledRequest, c container.ContainerID, warmStart bool) {

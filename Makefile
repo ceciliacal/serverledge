@@ -1,18 +1,19 @@
-BIN=bin
+BIN=./bin
+GO=/usr/local/go/bin/go
 
 all: serverledge executor serverledge-cli lb
 
 serverledge:
-	CGO_ENABLED=0 GOOS=linux go build -o $(BIN)/$@ cmd/$@/main.go
+	CGO_ENABLED=0 GOOS=linux $(GO) build -o $(BIN)/$@ cmd/$@/main.go
 
 lb:
-	CGO_ENABLED=0 GOOS=linux go build -o $(BIN)/$@ cmd/$@/main.go
+	CGO_ENABLED=0 GOOS=linux $(GO) build -o $(BIN)/$@ cmd/$@/main.go
 
 serverledge-cli:
-	CGO_ENABLED=0 GOOS=linux go build -o $(BIN)/$@ cmd/cli/main.go
+	CGO_ENABLED=0 GOOS=linux $(GO) build -o $(BIN)/$@ cmd/cli/main.go
 
 executor:
-	CGO_ENABLED=0 GOOS=linux go build -o $(BIN)/$@ cmd/$@/executor.go
+	CGO_ENABLED=0 GOOS=linux $(GO) build -o $(BIN)/$@ cmd/$@/executor.go
 
 DOCKERHUB_USER=grussorusso
 images:  image-python310 image-nodejs17ng image-base
@@ -33,4 +34,4 @@ test:
 
 .PHONY: serverledge serverledge-cli lb executor test images
 
-	
+

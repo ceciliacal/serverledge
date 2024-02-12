@@ -49,8 +49,8 @@ func Init() {
 	SoC = 100.0
 	batteryCapacityWh = batteryCapacity * voltage
 
-	getMockBattery()
-	//getBattery()
+	//getMockBattery()
+	getBattery()
 
 }
 
@@ -64,9 +64,8 @@ func getMockBattery() {
 		return
 	}
 
-	//160.80.97.154
-	url := fmt.Sprintf("http://160.80.97.154:8090/mockBattery/?hostName=%s", hostName)
-	//url := fmt.Sprintf("http://127.0.0.1:8090/mockBattery/?hostName=%s", hostName)
+	//url := fmt.Sprintf("http://160.80.97.154:8090/mockBattery/?hostName=%s", hostName)
+	url := fmt.Sprintf("http://127.0.0.1:8090/mockBattery/?hostName=%s", hostName)
 	response, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Error making GET request:", err)
@@ -102,15 +101,13 @@ func getMockBattery() {
 	decrementStep := (batteryPercentage * 5.0) / 100.0
 
 	for {
-		time.Sleep(60 * time.Second)
-
 		batteryPercentage = batteryPercentage - (decrementStep)
 		MyBattery.Mu.Lock()
 		MyBattery.Value = batteryPercentage
 		MyBattery.Mu.Unlock()
 
 		log.Println("======= ", time.Now().Format("2006-01-02 15:04:05"), "mockBatteryLevel: ", mockBatteryLevel, " - batteryPercentage: ", batteryPercentage, "\n\n")
-
+		time.Sleep(60 * time.Second)
 	}
 
 }
@@ -121,11 +118,7 @@ func getBattery() {
 	prevRaplWh := 0.0
 	CWh := batteryCapacityWh
 
-	getMockBattery()
-
 	for {
-
-		time.Sleep(60 * time.Second)
 
 		raplUj := readRAPL()
 		currRaplWh := raplUj / (1000000.0 * 3600)
@@ -145,6 +138,10 @@ func getBattery() {
 		CWh = CWh - diffWh
 		batteryPercentage := (CWh / batteryCapacityWh) * 100.0
 
+		if batteryPercentage <= 2.0 {
+			panic("BATTERY LOW")
+		}
+
 		MyBattery.Mu.Lock()
 		MyBattery.Value = batteryPercentage
 		MyBattery.Mu.Unlock()
@@ -152,7 +149,7 @@ func getBattery() {
 		prevRaplWh = currRaplWh
 
 		log.Println("======= ", time.Now().Format("2006-01-02 15:04:05"), " - RAPL [uJ]: ", raplUj, " - batteryPercentage: ", batteryPercentage, "\n\n")
-
+		time.Sleep(60 * time.Second)
 	}
 
 }

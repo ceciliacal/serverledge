@@ -6,6 +6,7 @@ import (
 	"sync"
 )
 
+var OutOfBatteryErr = errors.New("not enough battery for function execution")
 var OutOfResourcesErr = errors.New("not enough resources for function execution")
 
 var NodeIdentifier string

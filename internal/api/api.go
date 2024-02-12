@@ -78,6 +78,8 @@ func InvokeFunction(c echo.Context) error {
 
 	if errors.Is(err, node.OutOfResourcesErr) {
 		return c.String(http.StatusTooManyRequests, "")
+	} else if errors.Is(err, node.OutOfBatteryErr) {
+		return c.String(http.StatusGone, "Node is shutting down due to very low battery")
 	} else if err != nil {
 		log.Printf("Invocation failed: %v", err)
 		return c.String(http.StatusInternalServerError, "")
