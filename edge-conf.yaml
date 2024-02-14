@@ -1,0 +1,4 @@
+#etcd.address : 130.127.133.120:2379
+#cloud.server.url : http://130.127.133.120:1323
+scheduler.policy : energyaware
+cloud : false
