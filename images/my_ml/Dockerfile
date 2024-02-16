@@ -1,5 +1,5 @@
 FROM python:3.10-slim-buster
-RUN pip3 install pandas numpy
+RUN pip3 install tensorflow requests imageio
 
 WORKDIR /
 

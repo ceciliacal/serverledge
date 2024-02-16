@@ -17,8 +17,8 @@ it has to run on the server machine on port 8090
 */
 func main() {
 
-	//chargeLevels := []float64{15.0, 35.0, 55.0}
-	chargeLevels := []float64{1.0}
+	chargeLevels := []float64{15.0, 35.0, 55.0}
+	//chargeLevels := []float64{1.0}
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -67,8 +67,8 @@ func main() {
 		fmt.Println(addr)
 	}
 
-	fmt.Println("Server is running on http://", addrs, ":8090")
-	err := http.ListenAndServe(":8090", nil)
+	fmt.Println("Server is running on http://", addrs, ":9090")
+	err := http.ListenAndServe(":9090", nil)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
 	}

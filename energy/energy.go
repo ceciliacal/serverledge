@@ -64,8 +64,8 @@ func getMockBattery() {
 		return
 	}
 
-	//url := fmt.Sprintf("http://160.80.97.154:8090/mockBattery/?hostName=%s", hostName)
-	url := fmt.Sprintf("http://127.0.0.1:8090/mockBattery/?hostName=%s", hostName)
+	//url := fmt.Sprintf("http://160.80.97.154:9090/mockBattery/?hostName=%s", hostName)
+	url := fmt.Sprintf("http://127.0.0.1:9090/mockBattery/?hostName=%s", hostName)
 	response, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Error making GET request:", err)
@@ -119,7 +119,8 @@ func getBattery() {
 	CWh := batteryCapacityWh
 
 	for {
-
+		//Watt = Volt * Ampere
+		//joule = volt * ampere * secondi
 		raplUj := readRAPL()
 		currRaplWh := raplUj / (1000000.0 * 3600)
 
@@ -138,7 +139,7 @@ func getBattery() {
 		CWh = CWh - diffWh
 		batteryPercentage := (CWh / batteryCapacityWh) * 100.0
 
-		if batteryPercentage <= 2.0 {
+		if batteryPercentage <= 1.0 {
 			panic("BATTERY LOW")
 		}
 
