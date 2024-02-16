@@ -2,6 +2,7 @@ package scheduling
 
 import (
 	"fmt"
+	"github.com/grussorusso/serverledge/energy"
 	"time"
 
 	"github.com/grussorusso/serverledge/internal/container"
@@ -51,6 +52,8 @@ func Execute(contID container.ContainerID, r *scheduledRequest) error {
 	// initializing containers may require invocation retries, adding
 	// latency
 	r.ExecReport.InitTime += invocationWait.Seconds()
+
+	r.ExecReport.SoC = energy.ReadBattery()
 
 	// notify scheduler
 	completions <- &completion{scheduledRequest: r, contID: contID}

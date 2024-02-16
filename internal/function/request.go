@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-//Request represents a single function invocation.
+// Request represents a single function invocation.
 type Request struct {
 	ReqId      string
 	Fun        *Function
@@ -30,6 +30,7 @@ type ExecutionReport struct {
 	OffloadLatency float64
 	Duration       float64
 	SchedAction    string
+	SoC            float64
 }
 
 type Response struct {

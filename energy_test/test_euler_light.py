@@ -21,7 +21,7 @@ class QuickstartUser(HttpUser):
         f.write(str(datetime.datetime.now())+","+str(response.json())+"\n")
         f.close()
         if response.status_code == 410:
-            response.failure("fine batteria ",datetime.datetime.now())
+            response.failure("low battery ",datetime.datetime.now())
         return response
 
 
