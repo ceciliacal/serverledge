@@ -2,3 +2,6 @@
 #cloud.server.url : http://130.127.133.120:1323
 scheduler.policy : energyaware
 cloud : false
+container:
+  pool:
+    memory: 7680
