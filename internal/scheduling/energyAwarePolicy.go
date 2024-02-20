@@ -30,14 +30,14 @@ func (p *EnergyAwarePolicy) OnArrival(r *scheduledRequest) {
 		log.Println("Battery <= 1.0 > -> dropping request ")
 		nodeShutdown(r)
 	} else if batteryValue > 20.0 {
-		log.Println("Battery > 20% -> executing request locally ")
+		//log.Println("Battery > 20% -> executing request locally ")
 		containerID, err := node.AcquireWarmContainer(r.Fun)
 
 		if err == nil {
-			log.Println("Using a warm container for: ", r)
+			//log.Println("Using a warm container for: ", r)
 			execLocally(r, containerID, true)
 		} else {
-			log.Println("Handling cold start for: ", r)
+			//log.Println("Handling cold start for: ", r)
 			if !handleColdStart(r) {
 				dropRequest(r)
 			}
