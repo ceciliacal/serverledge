@@ -4,7 +4,7 @@ from locust import HttpUser, task, tag, constant_throughput
 
 
 class QuickstartUser(HttpUser):
-    wait_time = constant_throughput(1 / 120)
+    wait_time = constant_throughput(1/4)
 
     @tag('euler')
     @task()

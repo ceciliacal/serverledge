@@ -1,6 +1,7 @@
 package energy
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -44,7 +45,9 @@ func ReadBattery() float64 {
 func Init() {
 	// config battery capacity
 
-	batteryCapacity = 3.2 //capacita batteria viene misurata in Ah
+	//batteryCapacity = 3.2 //capacita batteria viene misurata in Ah
+
+	batteryCapacity = 5.2 //capacita batteria viene misurata in Ah
 	voltage = 3.7         //volt
 	SoC = 100.0
 	batteryCapacityWh = batteryCapacity * voltage
@@ -118,6 +121,8 @@ func getBattery() {
 	prevRaplWh := 0.0
 	CWh := batteryCapacityWh
 
+	var energyConsumptionList []string
+
 	for {
 		//Watt = Volt * Ampere
 		//joule = volt * ampere * secondi
@@ -140,6 +145,12 @@ func getBattery() {
 		batteryPercentage := (CWh / batteryCapacityWh) * 100.0
 
 		if batteryPercentage <= 1.0 {
+			if err := writeToFile("logEnergyConsumption.txt", energyConsumptionList); err != nil {
+				fmt.Println("Error writing to file:", err)
+				return
+			}
+			fmt.Println("Data written to file successfully.")
+
 			panic("BATTERY LOW")
 		}
 
@@ -149,8 +160,11 @@ func getBattery() {
 
 		prevRaplWh = currRaplWh
 
-		log.Println("======= ", time.Now().Format("2006-01-02 15:04:05"), " - RAPL [uJ]: ", raplUj, " - batteryPercentage: ", batteryPercentage, "\n\n")
-		time.Sleep(60 * time.Second)
+		logString := fmt.Sprintf("======= %s - RAPL [uJ]: %f - CWh : %f - batteryPercentage: %f", time.Now().Format("2006-01-02 15:04:05"), raplUj, CWh, batteryPercentage)
+		log.Println(logString + "\n\n")
+		energyConsumptionList = append(energyConsumptionList, logString)
+
+		time.Sleep(5 * time.Second)
 	}
 
 }
@@ -179,4 +193,28 @@ func RunCMD(command string) ([]byte, error) {
 	}
 	_, err = cmd.Process.Wait()
 	return buf.Bytes(), err
+}
+
+func writeToFile(filename string, lines []string) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	for _, line := range lines {
+		_, err := writer.WriteString(line + "\n")
+		if err != nil {
+			return err
+		}
+	}
+
+	// Flush to ensure all data is written to file
+	err = writer.Flush()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

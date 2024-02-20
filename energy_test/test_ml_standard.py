@@ -6,10 +6,10 @@ from locust import HttpUser, task, tag, constant_throughput
 class QuickstartUser(HttpUser):
     wait_time = constant_throughput(1/4)
 
-    @tag('euler_st')
+    @tag('ml_st')
     @task()
-    def euler_method(self):
-        response = self.client.post("/invoke/euler_st",
+    def ml_function(self):
+        response = self.client.post("/invoke/ml_st",
                                     json={"Params": {},
                                           "QoSClass": 0,
                                           "QoSMaxRespT": -1,
@@ -17,7 +17,7 @@ class QuickstartUser(HttpUser):
                                           "Async": False,
                                           "SoC": 0.0})
 
-        f = open('euler_standard_stats.txt', 'a')
+        f = open('ml_standard_stats.txt', 'a')
         f.write(str(datetime.datetime.now())+","+str(response.json())+"\n")
         f.close()
         if response.status_code == 410:

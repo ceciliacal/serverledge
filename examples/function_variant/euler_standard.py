@@ -1,6 +1,6 @@
 import numpy as np
 
-def explicit_euler(df, x0, h, N):
+def euler_method(df, x0, h, N):
     """Solves an ODE IVP using the Explicit Euler method.
     Keyword arguments:
     df  - The derivative of the system you wish to solve.
@@ -21,10 +21,10 @@ def df(t, y):
 
 
 def handler(params, context):
-    h = 0.000001
+    h = 0.00001
     f0 = (0, 0)
     tn = 13
     N = int(tn / h)
-    explicit_euler(df, f0, h, N)
-    return ''.join("Explicit Euler with step size h : "+str(h))
+    euler_method(df, f0, h, N)
+    return ''.join("Explicit Euler method with step size h : "+str(h))
 
