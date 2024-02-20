@@ -136,7 +136,7 @@ func getBattery() {
 		}
 
 		if prevRaplWh > currRaplWh {
-			fmt.Println("ALERT! \n")
+			fmt.Println("ALERT! prevRaplWh: ", prevRaplWh, " currRaplWh: ", currRaplWh, "\n")
 			continue
 		}
 
