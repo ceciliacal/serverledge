@@ -137,6 +137,7 @@ func getBattery() {
 
 		if prevRaplWh > currRaplWh {
 			fmt.Println("ALERT! prevRaplWh: ", prevRaplWh, " currRaplWh: ", currRaplWh, "\n")
+			time.Sleep(60 * time.Second)
 			continue
 		}
 
@@ -164,7 +165,7 @@ func getBattery() {
 		log.Println(logString + "\n\n")
 		energyConsumptionList = append(energyConsumptionList, logString)
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(60 * time.Second)
 	}
 
 }
