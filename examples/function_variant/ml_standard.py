@@ -29,7 +29,8 @@ def prob2class(Y):
 def handler (params, context):
     # se hai problemi con i parametri, puoi anche inserire qua un URL
     # hard-coded:
-    image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Edvard_Munch%2C_1893%2C_The_Scream%2C_oil%2C_tempera_and_pastel_on_cardboard%2C_91_x_73_cm%2C_National_Gallery_of_Norway.jpg/800px-Edvard_Munch%2C_1893%2C_The_Scream%2C_oil%2C_tempera_and_pastel_on_cardboard%2C_91_x_73_cm%2C_National_Gallery_of_Norway.jpg"
+    #image_url = params["imgurl"]
+    image_url = "https://img.freepik.com/free-vector/beautiful-home_24877-50819.jpg"
     print("Downloading: " + image_url)
     r = requests.get(image_url)
     with tempfile.NamedTemporaryFile() as of:

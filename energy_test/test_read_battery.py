@@ -5,7 +5,7 @@ from locust import HttpUser, task, constant
 
 
 class ReadBatteryNode(HttpUser):
-    wait_time = constant(15)
+    wait_time = constant(30)
 
     @task()
     def read_battery(self):

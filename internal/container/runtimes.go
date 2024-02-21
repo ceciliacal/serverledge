@@ -15,5 +15,5 @@ var RuntimeToInfo = map[string]RuntimeInfo{
 	"nodejs17":     RuntimeInfo{"grussorusso/serverledge-nodejs17", []string{"node", "/entrypoint.js"}},
 	"nodejs17ng":   RuntimeInfo{"grussorusso/serverledge-nodejs17ng", []string{}},
 	"my_python310": RuntimeInfo{"ceciliacal/my_python310", []string{"python", "/entrypoint.py"}},
-	"my_ml":        RuntimeInfo{"ceciliacal/serverledge-ml:v1-release", []string{"python", "/entrypoint.py"}},
+	"ml-py":        {"ceciliacal/ml-py", []string{"python", "/entrypoint.py"}},
 }
