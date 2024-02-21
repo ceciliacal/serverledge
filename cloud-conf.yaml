@@ -1,5 +1,5 @@
-etcd.address : 130.127.133.153:2379
-cloud.server.url : http://130.127.133.153:1323
+etcd.address : 130.127.133.162:2379
+cloud.server.url : http://130.127.133.162:1323
 scheduler.policy : cloudonly
 cloud : true
 container:
