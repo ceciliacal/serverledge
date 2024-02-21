@@ -4,4 +4,4 @@ scheduler.policy : energyaware
 cloud : false
 container:
   pool:
-    memory: 7680
+    memory: 8192
