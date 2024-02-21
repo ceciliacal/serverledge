@@ -1,5 +1,5 @@
 FROM python:3.10-slim-buster
-RUN pip3 install tensorflow requests imageio tensorflow_io
+RUN pip3 install tensorflow tensorflow.compat.v1 requests imageio #tensorflow_io
 
 WORKDIR /
 

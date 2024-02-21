@@ -2,10 +2,10 @@ import tempfile
 
 import imageio
 import requests
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow import keras
 
-import tensorflow_io as tfio
+
 
 
 modelR50 = keras.applications.resnet50.ResNet50(weights="imagenet")
@@ -13,13 +13,13 @@ modelR152 = keras.applications.ResNet152(weights="imagenet")
 
 def predictResNet50(input_img):
     image = imageio.imread(input_img)
-    resized = tfio.image.resize([image], (224, 224))
+    resized = tf.image.resize([image], (224, 224))
     inputs = keras.applications.resnet.preprocess_input(resized)
     return modelR50.predict(inputs)
 
 def predictResNet152(input_img):
     image = imageio.imread(input_img)
-    resized = tfio.image.resize([image], (224, 224))
+    resized = tf.image.resize([image], (224, 224))
     inputs = keras.applications.resnet.preprocess_input(resized)
     return modelR152.predict(inputs)
 
