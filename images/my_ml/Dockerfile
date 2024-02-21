@@ -1,5 +1,5 @@
 FROM python:3.10-slim-buster
-RUN pip3 install tensorflow==1.2.0 requests imageio #tensorflow_io
+RUN pip3 install tensorflow==2.15.0 requests imageio #tensorflow_io
 
 WORKDIR /
 
