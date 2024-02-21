@@ -2,7 +2,7 @@ import tempfile
 
 import imageio
 import requests
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 from tensorflow import keras
 
 
