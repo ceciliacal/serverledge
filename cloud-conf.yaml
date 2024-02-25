@@ -1,7 +1,7 @@
-etcd.address : 130.127.133.160:2379
-cloud.server.url : http://130.127.133.160:1323
+etcd.address : 130.127.133.186:2379
+cloud.server.url : http://130.127.133.186:1323
 scheduler.policy : cloudonly
 cloud : true
 container:
   pool:
-    memory: 7680
+    memory: 8192
