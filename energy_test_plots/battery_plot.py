@@ -10,6 +10,8 @@ def plot_csv_data(file_paths):
     # Initialize the plot
     plt.figure(figsize=(10, 6))
 
+    labels = ['Euler light', 'Euler baseline', 'Machine Learning light', 'Machine Learning baseline']
+
     # Iterate over each file
     for i, file_path in enumerate(file_paths):
         # Read the CSV file, extracting only the second column
@@ -20,7 +22,7 @@ def plot_csv_data(file_paths):
         #time_minutes = [i / 60.0 for i in range(len(df))]
 
         # Plot the data
-        plt.plot(time_minutes, df['SoC'], marker='o', linestyle='-', label=f'File {i+1}')
+        plt.plot(time_minutes, df['SoC'], marker='o', linestyle='-', label=labels[i])
 
 
     plt.xticks(np.arange(0,25))
@@ -29,7 +31,7 @@ def plot_csv_data(file_paths):
     # Set labels and title
     plt.xlabel('Time (minutes)')
     plt.ylabel('Battery percentage')
-    plt.title('Float Value vs Time')
+    plt.title('Battery rate consumption in different function executions')
 
     # Show legend
     plt.legend()
@@ -37,7 +39,7 @@ def plot_csv_data(file_paths):
     # Show plot
     plt.show()
 
-    #todo. plt.save
+    plt.savefig("batteries.pdf", format="PDF")
 
 def main():
     # Define the file paths for the CSV files

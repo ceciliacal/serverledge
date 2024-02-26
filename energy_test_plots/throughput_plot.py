@@ -4,12 +4,12 @@ import pandas as pd
 from matplotlib.dates import DateFormatter, MinuteLocator
 
 
-def plot_csv_data(csv_file, battery_file_path, start_ts, end_ts):
+def plot_csv_data(csv_file, battery_file_path, start_ts, end_ts, function_name):
     # Read the CSV file
 
     batteryDf = pd.read_csv(battery_file_path, usecols=[1], header=None, names=['SoC']).dropna()
 
-    df = pd.read_csv(csv_file, usecols=[0,4], header=0, names=['timestamp', 'value'])
+    df = pd.read_csv(csv_file, usecols=[0,4,5], header=0, names=['timestamp', 'requests_sec','failures_sec'])
 
     # Convert the timestamp column to datetime
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
@@ -26,14 +26,14 @@ def plot_csv_data(csv_file, battery_file_path, start_ts, end_ts):
     x_values_list = np.arange(0,num_x_values)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-    fig.suptitle("Requests throughput and node state of charge over function execution")
+    fig.suptitle("Requests throughput and node state of charge over "+function_name+" execution")
 
     ax1.set_xlabel('Time [minutes]')
     ax1.set_ylabel('RPS')
 
     ax1_x_values = len(resampled_df['timestamp'])
     print(ax1_x_values)
-    ax1.plot(np.arange(0,ax1_x_values), resampled_df['value'], linestyle='-')
+    ax1.plot(np.arange(0,ax1_x_values), resampled_df['requests_sec'] - resampled_df['failures_sec'], linestyle='-')
 
     ax1.set_xticks([])
 
@@ -47,49 +47,9 @@ def plot_csv_data(csv_file, battery_file_path, start_ts, end_ts):
     ax2.set_ylabel('Battery percentage')
 
     plt.show()
-    #plt.savefig("nomefile.pdf", format="PDF")
+    plt.savefig(csv_file+".pdf", format="PDF")
 
 
-def plot_csv_data1(csv_file):
-    # Read the CSV file
-
-    df = pd.read_csv(csv_file, usecols=[0,4], header=0, names=['timestamp', 'value'])
-
-    # Convert the timestamp column to integer (milliseconds)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
-    start_date = pd.to_datetime('2024-02-23 15:48:57')
-    end_date = pd.to_datetime(' 2024-02-23 16:05:51')
-
-    # Filter the DataFrame based on the datetime range
-    filtered_df = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= end_date)]
-    resampled_df = filtered_df.set_index('timestamp').resample('5S').first().reset_index()
-
-
-    # Plot the data
-    plt.figure(figsize=(12, 4))
-    plt.plot(resampled_df['timestamp'], resampled_df['value'], linestyle='-')
-
-    # Set labels and title
-    plt.xlabel('Time')
-    plt.ylabel('Value')
-    plt.title('Value vs Time')
-
-    # Format x-axis as hh:mm:ss
-    plt.gca().xaxis.set_major_locator(MinuteLocator(interval=1))  # Set the interval to 1 minute
-    plt.gca().xaxis.set_major_formatter(DateFormatter('%H:%M:%S'))
-
-    # Rotate x-axis labels for better readability
-    plt.xticks(rotation=45)
-    plt.yticks(np.arange(0,9))
-
-    xticks_locations, xticks_labels = plt.xticks()
-    num_xticks = len(xticks_locations)
-    #plt.xticks(np.arange(0, num_xticks))
-
-
-    # Show plot
-    plt.tight_layout()
-    plt.show()
 
 def main():
     # Provide the path to your CSV file
@@ -105,18 +65,18 @@ def main():
 
     csv_file_ml = '../locust_stats/ml/test_ml_stats_history.csv'
     battery_file_ml = '../locust_stats/ml/battery_stats.csv'
-    start_ts_ml = '2024-02-23 15:04:17'
-    end_ts_ml = '2024-02-23 15:27:06'
+    start_ts_ml = '2024-02-26 11:36:40'
+    end_ts_ml = '2024-02-26 12:11:35'
 
     csv_file_mlst = '../locust_stats/ml_standard/test_ml_st_stats_history.csv'
     battery_file_mlst = '../locust_stats/ml_standard/battery_stats.csv'
-    start_ts_mlst = '2024-02-23 14:24:13'
-    end_ts_mlst = '2024-02-23 14:46:06'
+    start_ts_mlst = '2024-02-26 11:04:12'
+    end_ts_mlst = '2024-02-26 11:29:07'
 
-    #plot_csv_data(csv_file_euler,battery_file_euler,start_ts_euler,end_ts_euler)
-    #plot_csv_data(csv_file_eulerst,battery_file_eulerst,start_ts_eulerst,end_ts_eulerst)
-    plot_csv_data(csv_file_ml,battery_file_ml,start_ts_ml,end_ts_ml)
-    #plot_csv_data(csv_file_mlst,battery_file_mlst,start_ts_mlst,end_ts_mlst)
+    plot_csv_data(csv_file_euler,battery_file_euler,start_ts_euler,end_ts_euler,"Euler light function variant")
+    plot_csv_data(csv_file_eulerst,battery_file_eulerst,start_ts_eulerst,end_ts_eulerst,"Euler baseline")
+    plot_csv_data(csv_file_ml,battery_file_ml,start_ts_ml,end_ts_ml,"ML light function variant")
+    plot_csv_data(csv_file_mlst,battery_file_mlst,start_ts_mlst,end_ts_mlst, "ML baseline")
 
 
 if __name__ == "__main__":
