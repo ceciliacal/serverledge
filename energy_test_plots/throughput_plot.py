@@ -25,8 +25,10 @@ def plot_csv_data(csv_file, battery_file_path, start_ts, end_ts, function_name):
     num_x_values = len(batteryDf['SoC'])
     x_values_list = np.arange(0,num_x_values)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-    fig.suptitle("Requests throughput and node state of charge over "+function_name+" execution")
+    fig=plt.figure()
+    ax1 = fig.add_subplot(111, label="1")
+    ax2=fig.add_subplot(111, label="2", frame_on=False)
+
 
     ax1.set_xlabel('Time [minutes]')
     ax1.set_ylabel('RPS')
@@ -40,14 +42,21 @@ def plot_csv_data(csv_file, battery_file_path, start_ts, end_ts, function_name):
     ticks_minutes = np.arange(0,x_tick_gap*num_x_values,x_tick_gap)
     ax1.set_xticks(ticks_minutes, x_values_list)
 
+    #ax2 = ax1.twinx()
+
     # Create the second subplot for the float numbers
     ax2.plot(np.arange(0,num_x_values), batteryDf['SoC'], linestyle='-', color='red')
-    ax2.xaxis.set_ticks(np.arange(0,num_x_values))
-    ax2.set_xlabel('Time [minutes]')
+    #ax2.xaxis.set_ticks(np.arange(0,num_x_values))
+    #ax2.set_xlabel('Time [minutes]')
     ax2.set_ylabel('Battery percentage')
+    ax2.yaxis.tick_right()
+    ax2.yaxis.set_label_position('right')
+    ax2.set_xticks([])
+    ax2.set_yticks(np.arange(0,101,step=10))
+    #ax2.plot(np.arange(0,num_x_values), batteryDf['SoC'], linestyle='-', color='red')
 
-    plt.show()
-    plt.savefig(csv_file+".pdf", format="PDF")
+    #plt.show()
+    plt.savefig(function_name+".pdf", format="PDF")
 
 
 
@@ -74,9 +83,9 @@ def main():
     end_ts_mlst = '2024-02-26 11:29:07'
 
     plot_csv_data(csv_file_euler,battery_file_euler,start_ts_euler,end_ts_euler,"Euler light function variant")
-    plot_csv_data(csv_file_eulerst,battery_file_eulerst,start_ts_eulerst,end_ts_eulerst,"Euler baseline")
-    plot_csv_data(csv_file_ml,battery_file_ml,start_ts_ml,end_ts_ml,"ML light function variant")
-    plot_csv_data(csv_file_mlst,battery_file_mlst,start_ts_mlst,end_ts_mlst, "ML baseline")
+    #plot_csv_data(csv_file_eulerst,battery_file_eulerst,start_ts_eulerst,end_ts_eulerst,"Euler baseline")
+    #plot_csv_data(csv_file_ml,battery_file_ml,start_ts_ml,end_ts_ml,"ML light function variant")
+    #plot_csv_data(csv_file_mlst,battery_file_mlst,start_ts_mlst,end_ts_mlst, "ML baseline")
 
 
 if __name__ == "__main__":

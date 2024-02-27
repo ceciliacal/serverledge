@@ -16,13 +16,7 @@ func (p *EnergyAwarePolicy) OnCompletion(r *scheduledRequest) {
 
 func (p *EnergyAwarePolicy) OnArrival(r *scheduledRequest) {
 
-	myBattery := energy.MyBattery
-
-	myBattery.Mu.Lock()
-	batteryValue := myBattery.Value
-	myBattery.Mu.Unlock()
-
-	//batteryValue := energy.ReadBattery()
+	batteryValue := energy.ReadBattery()
 	r.Params["SoC"] = batteryValue
 
 	if batteryValue <= 1.0 {
