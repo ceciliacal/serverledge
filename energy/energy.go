@@ -46,7 +46,8 @@ func Init() {
 	// config battery capacity
 
 	//batteryCapacity = 3.2 //capacita batteria viene misurata in Ah
-
+	//Watt = Volt * Ampere
+	//joule = volt * ampere * secondi
 	batteryCapacity = 5.2 //capacita batteria viene misurata in Ah
 	voltage = 3.7         //volt
 	SoC = 100.0
@@ -119,13 +120,10 @@ func getBattery() {
 
 	count := 0
 	prevRaplWh := 0.0
-	CWh := batteryCapacityWh
-
-	var energyConsumptionList []string
+	batteryCapacityWh := batteryCapacityWh
 
 	for {
-		//Watt = Volt * Ampere
-		//joule = volt * ampere * secondi
+
 		raplUj := readRAPL()
 		currRaplWh := raplUj / (1000000.0 * 3600)
 
@@ -142,16 +140,10 @@ func getBattery() {
 		}
 
 		diffWh := currRaplWh - prevRaplWh
-		CWh = CWh - diffWh
-		batteryPercentage := (CWh / batteryCapacityWh) * 100.0
+		batteryCapacityWh = batteryCapacityWh - diffWh
+		batteryPercentage := (batteryCapacityWh / batteryCapacityWh) * 100.0
 
 		if batteryPercentage <= 1.0 {
-			if err := writeToFile("logEnergyConsumption.txt", energyConsumptionList); err != nil {
-				fmt.Println("Error writing to file:", err)
-				return
-			}
-			fmt.Println("Data written to file successfully.")
-
 			panic("BATTERY LOW")
 		}
 
@@ -161,9 +153,8 @@ func getBattery() {
 
 		prevRaplWh = currRaplWh
 
-		logString := fmt.Sprintf("======= %s - RAPL [uJ]: %f - CWh : %f - batteryPercentage: %f", time.Now().Format("2006-01-02 15:04:05"), raplUj, CWh, batteryPercentage)
+		logString := fmt.Sprintf("======= %s - RAPL [uJ]: %f - batteryCapacityWh : %f - batteryPercentage: %f", time.Now().Format("2006-01-02 15:04:05"), raplUj, batteryCapacityWh, batteryPercentage)
 		log.Println(logString + "\n\n")
-		energyConsumptionList = append(energyConsumptionList, logString)
 
 		time.Sleep(60 * time.Second)
 	}

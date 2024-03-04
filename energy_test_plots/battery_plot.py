@@ -37,7 +37,7 @@ def plot_csv_data(file_paths):
     plt.legend()
 
     # Show plot
-    plt.show()
+    #plt.show()
 
     plt.savefig("batteries.pdf", format="PDF")
 

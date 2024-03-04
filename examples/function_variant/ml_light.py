@@ -65,5 +65,4 @@ def handler(params, context):
         return {"Class": prediction}
 
 
-#params = {"imgurl": "https://upload.wikimedia.org/wikipedia/commons/d/de/Nokota_Horses_cropped.jpg"}
 
