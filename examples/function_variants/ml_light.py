@@ -38,11 +38,9 @@ def prob2class(Y):
 
 
 def handler(params, context):
-    # se hai problemi con i parametri, puoi anche inserire qua un URL
-    # hard-coded:
+
     #image_url = params["imgurl"]
     image_url = "https://upload.wikimedia.org/wikipedia/commons/d/de/Nokota_Horses_cropped.jpg"
-    batteryLevel = params["SoC"]
 
     print("Downloading: " + image_url)
     r = requests.get(image_url)
@@ -51,8 +49,8 @@ def handler(params, context):
         of.flush()
         input_file = of.name
 
-        # oppure, SoC alta:
-        if batteryLevel > 40.0:
+        is_light_variant = bool(context['isLightVariant'])
+        if not is_light_variant:
             y0 = predictMobileNet(input_file)
             y1 = predictResNet50(input_file)
             y2 = predictResNet152(input_file)

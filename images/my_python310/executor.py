@@ -12,6 +12,7 @@ serverPort = 8080
 executed_modules = {}
 added_dirs = {}
 
+
 class Executor(BaseHTTPRequestHandler):
     def do_POST(self):
         content_length = int(self.headers['Content-Length'])
@@ -31,18 +32,21 @@ class Executor(BaseHTTPRequestHandler):
         except:
             params = {}
 
+        context = {}
+
         if "context" in os.environ:
             context = json.loads(os.environ["CONTEXT"])
-        else:
-            context = {}
+
+        context["SoC"] = request["Context"]["SoC"]
+        context["isLightVariant"] = request["Context"]["isLightVariant"]
 
         if not handler_dir in added_dirs:
             sys.path.insert(1, handler_dir)
             added_dirs[handler_dir] = True
 
         # Get module name
-        module,func_name = os.path.splitext(handler)
-        func_name = func_name[1:] # strip initial dot
+        module, func_name = os.path.splitext(handler)
+        func_name = func_name[1:]  # strip initial dot
 
         response = {}
 
@@ -68,7 +72,6 @@ class Executor(BaseHTTPRequestHandler):
         self.wfile.write(bytes(json.dumps(response), "utf-8"))
 
 
-
 if __name__ == "__main__":
     webServer = HTTPServer((hostName, serverPort), Executor)
     print("Server started http://%s:%s" % (hostName, serverPort))
@@ -80,4 +83,3 @@ if __name__ == "__main__":
 
     webServer.server_close()
     print("Server stopped.")
-

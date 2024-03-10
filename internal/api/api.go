@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/grussorusso/serverledge/energy"
+	"github.com/grussorusso/serverledge/internal/energy"
 	"io"
 	"log"
 	"net/http"

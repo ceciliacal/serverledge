@@ -36,6 +36,9 @@ class Executor(BaseHTTPRequestHandler):
         else:
             context = {}
 
+        context["SoC"] = request["Context"]["SoC"]
+        context["isLightVariant"] = request["Context"]["isLightVariant"]
+
         if not handler_dir in added_dirs:
             sys.path.insert(1, handler_dir)
             added_dirs[handler_dir] = True

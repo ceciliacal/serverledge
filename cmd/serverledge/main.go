@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/grussorusso/serverledge/energy"
+	"github.com/grussorusso/serverledge/internal/energy"
 	"log"
 	"net/http"
 	"os"

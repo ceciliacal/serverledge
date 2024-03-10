@@ -1,7 +1,7 @@
 package scheduling
 
 import (
-	"github.com/grussorusso/serverledge/energy"
+	"github.com/grussorusso/serverledge/internal/energy"
 	"github.com/grussorusso/serverledge/internal/node"
 	"log"
 )

@@ -2,7 +2,7 @@ package scheduling
 
 import (
 	"fmt"
-	"github.com/grussorusso/serverledge/energy"
+	"github.com/grussorusso/serverledge/internal/energy"
 	"time"
 
 	"github.com/grussorusso/serverledge/internal/container"
@@ -14,6 +14,10 @@ const HANDLER_DIR = "/app"
 // Execute serves a request on the specified container.
 func Execute(contID container.ContainerID, r *scheduledRequest) error {
 	//log.Printf("[%s] Executing on container: %v", r, contID)
+
+	context := make(map[string]interface{}) //crea il channel / dictionary
+	context["SoC"] = energy.ReadBattery()
+	context["isLightVariant"] = energy.IsLightVariant()
 
 	var req executor.InvocationRequest
 	if r.Fun.Runtime == container.CUSTOM_RUNTIME {
@@ -27,6 +31,7 @@ func Execute(contID container.ContainerID, r *scheduledRequest) error {
 			r.Params,
 			r.Fun.Handler,
 			HANDLER_DIR,
+			context,
 		}
 	}
 

@@ -5,6 +5,7 @@ type InvocationRequest struct {
 	Params     map[string]interface{}
 	Handler    string
 	HandlerDir string
+	Context    map[string]interface{}
 }
 
 type InvocationResult struct {

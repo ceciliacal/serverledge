@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/grussorusso/serverledge/energy"
+	"github.com/grussorusso/serverledge/internal/energy"
 	"log"
 	"net"
 	"time"

@@ -23,7 +23,24 @@ def df(t, y):
 
 
 def handler(params, context):
-    batteryLevel = params["SoC"]
+    is_light_variant = bool(context['isLightVariant'])
+    if not is_light_variant:
+        h = 0.00001
+        f0 = (0, 0)
+        tn = 13
+        N = int(tn / h)
+        euler_method(df, f0, h, N)
+        return ''.join("Standard energy consumpation version - Explicit Euler method with step size h : " + str(h))
+    else:
+        h = 0.001
+        f0 = (0, 0)
+        tn = 13
+        N = int(tn / h)
+        euler_method(df, f0, h, N)
+        return ''.join("Lower energy consumpation version - Explicit Euler method with step size h : " + str(h))
+
+'''
+ batteryLevel = params["SoC"]
     if batteryLevel > 40.0:
         h = 0.00001
         f0 = (0, 0)
@@ -38,3 +55,5 @@ def handler(params, context):
         N = int(tn / h)
         euler_method(df, f0, h, N)
         return ''.join("Lower energy consumpation version - Explicit Euler method with step size h : " + str(h))
+
+'''
