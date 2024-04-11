@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	_ "fmt"
+	"github.com/grussorusso/serverledge/internal/config"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -42,10 +43,17 @@ func ReadBattery() float64 {
 }
 
 func IsLightVariant() bool {
-	if ReadBattery() > 40.0 {
-		return false
+	//if policy == energy aware, do below
+	//else return false
+	policy := config.GetString(config.SCHEDULING_POLICY, "default")
+	if policy == "energyaware" { //se policy non è configurata a "energyaware" eseguo sempre variante di default
+		if ReadBattery() <= 40.0 {
+			return true
+		} else {
+			return false
+		}
 	} else {
-		return true
+		return false
 	}
 }
 

@@ -155,7 +155,6 @@ func main() {
 // qui vengono definite policy di scheduling, quindi se voglio aggiungere policy "batteria < 20% -> offloading verso Cloud" la inserisco qui!
 func createSchedulingPolicy() scheduling.Policy {
 	policyConf := config.GetString(config.SCHEDULING_POLICY, "default")
-	//policyConf = "energyaware"
 	log.Printf("Configured policy: %s\n", policyConf)
 	if policyConf == "cloudonly" {
 		return &scheduling.CloudOnlyPolicy{}
