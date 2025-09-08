@@ -59,13 +59,15 @@ func Run(p Policy) {
 		case r = <-requests: // receive request
 			go p.OnArrival(r)
 		case c = <-completions:
-			node.HandleCompletion(c.cont, c.fun)
+			if r.Request.Fun.ExternalProvider == "" { //Temporaneo, potrei eseguire una funzione deployata in AWS anche in locale
+				node.HandleCompletion(c.cont, c.fun)
+			}
 			p.OnCompletion(c.fun, c.executionReport)
-
 			if metrics.Enabled && c.executionReport != nil {
 				metrics.AddCompletedInvocation(c.fun.Name)
 				if c.executionReport.SchedAction != SCHED_ACTION_OFFLOAD {
 					metrics.AddFunctionDurationValue(c.fun.Name, c.executionReport.Duration)
+					metrics.AddFunctionInitTimeValue(c.fun.Name, c.executionReport.InitTime)
 				}
 				outputSize := len(c.executionReport.Result)
 				metrics.AddFunctionOutputSizeValue(r.Fun.Name, float64(outputSize))
@@ -101,7 +103,7 @@ func SubmitRequest(r *function.Request) (function.ExecutionReport, error) {
 		//log.Printf("[%s] Dropping request", r)
 		return function.ExecutionReport{}, node.OutOfResourcesErr
 	} else if schedDecision.action == EXEC_REMOTE {
-		//log.Printf("Offloading request")
+		//log.Printf("Offloading request to: %s\n", schedDecision.remoteHost)
 		return Offload(r, schedDecision.remoteHost)
 	} else {
 		return Execute(schedDecision.cont, &schedRequest, schedDecision.useWarm)
@@ -167,4 +169,10 @@ func handleCloudOffload(r *scheduledRequest) {
 	} else {
 		handleOffload(r, offloadingTarget.APIUrl())
 	}
+}
+
+// Func for handling requests to AWS Lambda
+func handleLambdaOffload(r *scheduledRequest) {
+	cloudAddress := "aws:externalprovider"
+	handleOffload(r, cloudAddress)
 }

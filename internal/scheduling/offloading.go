@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/serverledge-faas/serverledge/internal/client"
@@ -39,6 +41,18 @@ func Offload(r *function.Request, serverUrl string) (function.ExecutionReport, e
 		return function.ExecutionReport{}, err
 	}
 	sendingTime := time.Now() // used to compute latency later on
+
+	//Manage AWS Lambda offload
+	if strings.HasPrefix(serverUrl, "aws:externalprovider") {
+		log.Printf("Offloading to AWS Lambda the function")
+		executionReport, err := offloadToLambda(r, invocationBody, sendingTime)
+		if err != nil {
+			return function.ExecutionReport{}, err
+		}
+
+		return executionReport, nil
+	}
+
 	resp, err := offloadingClient.Post(serverUrl+"/invoke/"+r.Fun.Name, "application/json",
 		bytes.NewBuffer(invocationBody))
 
@@ -101,4 +115,41 @@ func OffloadAsync(r *function.Request, serverUrl string) error {
 
 	// there is nothing to wait for
 	return nil
+}
+
+func offloadToLambda(request *function.Request, invocationBody []byte, sendingTime time.Time) (function.ExecutionReport, error) {
+	provider, err := lambda.GetProvider()
+
+	if err != nil {
+		log.Print(err)
+		return function.ExecutionReport{}, err
+	}
+
+	report, err := provider.InvokeProviderFunction(request, invocationBody)
+
+	if err != nil {
+		completions <- &completionNotification{
+			fun:             request.Fun,
+			cont:            nil, // non c’è container locale
+			executionReport: nil,
+		}
+		return function.ExecutionReport{}, err
+	}
+
+	now := time.Now()
+	report.ResponseTime = now.Sub(request.Arrival).Seconds()
+
+	report.OffloadLatency = now.Sub(sendingTime).Seconds() -
+		report.Duration - report.InitTime
+	if report.OffloadLatency < 0 {
+		report.OffloadLatency = 0
+	}
+
+	completions <- &completionNotification{
+		fun:             request.Fun,
+		cont:            nil,
+		executionReport: &report,
+	}
+
+	return report, nil
 }

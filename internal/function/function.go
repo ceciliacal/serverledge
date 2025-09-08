@@ -14,15 +14,17 @@ import (
 
 // Function describes a serverless function.
 type Function struct {
-	Name            string
-	Runtime         string  // example: python310
-	MemoryMB        int64   // MB
-	CPUDemand       float64 // 1.0 -> 1 core
-	MaxConcurrency  int16   // intra-container maximum concurrency
-	Handler         string  // example: "module.function_name"
-	TarFunctionCode string  // input is .tar
-	CustomImage     string  // used if custom runtime is chosen
-	Signature       *Signature
+	Name             string
+	Runtime          string  // example: python310
+	MemoryMB         int64   // MB
+	CPUDemand        float64 // 1.0 -> 1 core
+	MaxConcurrency   int16   // intra-container maximum concurrency
+	Handler          string  // example: "module.function_name"
+	TarFunctionCode  string  // input is .tar
+	CustomImage      string  // used if custom runtime is chosen
+	Signature        *Signature
+	ExternalProvider string
+	ArnCode          string
 }
 
 func (f *Function) getEtcdKey() string {
@@ -174,4 +176,12 @@ func GetAllWithPrefix(prefix string) ([]string, error) {
 	}
 
 	return functions, ctx.Err()
+}
+
+func GetExternalProvider(name string) (string, string, bool) {
+	f, ok := GetFunction(name)
+	if !ok || f == nil || f.ExternalProvider == "" || f.ArnCode == "" {
+		return "", "", false
+	}
+	return f.ExternalProvider, f.ArnCode, true
 }
