@@ -27,6 +27,25 @@ func main() {
 	}
 	config.ReadConfiguration(configFileName)
 
+	// === carbon aware config setup ===
+	configCo2TraceFileName := ""
+	if len(os.Args) > 2 {
+		fmt.Println("ciao")
+
+		configCo2TraceFileName = os.Args[2]
+	}
+
+	co2TracesFilename, co2Timestamp, co2Intensity, pollInterval, err := node.ReadCO2Configuration(configCo2TraceFileName)
+	if err != nil {
+		log.Printf("Skipping CO2 monitoring: %v\n", err)
+	} else {
+		//todo: setup config energy info in node
+		if err := startCO2Monitoring(co2TracesFilename, co2Timestamp, co2Intensity, pollInterval, nil); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("CO2 poller started")
+	}
+
 	//setting up cache parameters
 	api.CacheSetup()
 
@@ -34,7 +53,7 @@ func main() {
 	myArea := config.GetString(config.REGISTRY_AREA, "ROME")
 	node.LocalNode = node.NewIdentifier(myArea)
 
-	err := registration.RegisterNode()
+	err = registration.RegisterNode()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -79,4 +98,29 @@ func main() {
 
 	api.StartAPIServer(e)
 
+}
+
+func startCO2Monitoring(
+	path, tsHeader, valHeader string,
+	period time.Duration,
+	loc *time.Location,
+) error {
+	poller := &node.CO2Poller{}
+
+	if err := poller.Start(path, tsHeader, valHeader, period, loc); err != nil {
+		return err
+	}
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			t, intensity, count := poller.CarbonFootprint().Snapshot()
+			now := time.Now().UTC().Format(time.RFC3339)
+			log.Printf("CO2 snapshot now=%s t=%s intensity=%.3f count=%d",
+				now, t.Format(time.RFC3339), intensity, count)
+		}
+	}()
+
+	return nil
 }

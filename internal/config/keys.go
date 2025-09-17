@@ -110,3 +110,8 @@ const WORKFLOW_THRESHOLD_BASED_POLICY_THRESHOLD = "workflow.offloading.policy.th
 
 // Max number of tasks offloaded at once in the threshold-based offloading policy
 const WORKFLOW_THRESHOLD_BASED_POLICY_MAX_OFFLOADED = "workflow.offloading.policy.threshold.offloaded.max"
+
+// power consuming features
+const PROCESSING_POWER_CONSUMPTION = "node.consumption.power"
+const TX_ENERGY_CONSUMPTION = "node.consumption.energy.tx"
+const RX_ENERGY_CONSUMPTION = "node.consumption.energy.rx"

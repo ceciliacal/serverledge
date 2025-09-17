@@ -3,10 +3,11 @@ package node
 import (
 	"errors"
 	"fmt"
-	"github.com/lithammer/shortuuid"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/lithammer/shortuuid"
 )
 
 var OutOfResourcesErr = errors.New("not enough resources for function execution")
@@ -29,11 +30,16 @@ func NewIdentifier(area string) NodeID {
 
 type NodeResources struct {
 	sync.RWMutex
-	AvailableMemMB int64
-	UsedMemMB      int64 // memory occupied by busy containers
-	AvailableCPUs  float64
-	DropCount      int64
-	ContainerPools map[string]*ContainerPool
+	AvailableMemMB             int64
+	UsedMemMB                  int64 // memory occupied by busy containers
+	AvailableCPUs              float64
+	DropCount                  int64
+	ContainerPools             map[string]*ContainerPool
+	Co2Footprint               CarbonFootprint
+	ProcessingPowerConsumption float64
+	TxEnergyConsumption        float64
+	RxEnergyConsumption        float64
+	GCo2Emissions              float64
 }
 
 func (n *NodeResources) String() string {

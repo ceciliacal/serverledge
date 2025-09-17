@@ -2,11 +2,12 @@ package scheduling
 
 import (
 	"fmt"
-	"github.com/serverledge-faas/serverledge/internal/registration"
 	"log"
 	"net/http"
 	"runtime"
 	"time"
+
+	"github.com/serverledge-faas/serverledge/internal/registration"
 
 	"github.com/serverledge-faas/serverledge/internal/config"
 	"github.com/serverledge-faas/serverledge/internal/container"
@@ -32,6 +33,13 @@ func Run(p Policy) {
 	node.Resources.AvailableMemMB = int64(config.GetInt(config.POOL_MEMORY_MB, 1024))
 	node.Resources.AvailableCPUs = config.GetFloat(config.POOL_CPUS, float64(availableCores))
 	node.Resources.ContainerPools = make(map[string]*node.ContainerPool)
+
+	//todo: energy configs (fix default values)-> co2footprint potrebbe non servire come attributo
+	node.Resources.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 100.0)
+	node.Resources.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 100.0)
+	node.Resources.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 100.0)
+	node.Resources.GCo2Emissions = 0.0
+
 	log.Printf("Current resources: %v\n", &node.Resources)
 
 	container.InitDockerContainerFactory()
