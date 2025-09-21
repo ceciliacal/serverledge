@@ -12,6 +12,7 @@ import (
 const CredentialsDirectory string = "./internal/externalprovider/lambda/aws/credentials"
 const ConfigDirectory string = "./internal/externalprovider/lambda/aws/config"
 const DefaultProfile = "lambda"
+const ServerUrlLambda = "aws:externalprovider"
 
 func loadAWSConfig() (aws.Config, error) {
 	return config.LoadDefaultConfig(context.TODO(),
