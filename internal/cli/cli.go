@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/labstack/gommon/log"
-	"github.com/serverledge-faas/serverledge/internal/api"
 
 	"github.com/serverledge-faas/serverledge/internal/client"
 	"github.com/serverledge-faas/serverledge/internal/config"
@@ -47,6 +46,12 @@ var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Registers a new function",
 	Run:   create,
+}
+
+var prewarmCmd = &cobra.Command{
+	Use:   "prewarm",
+	Short: "Prewarms instances for a function",
+	Run:   prewarm,
 }
 
 var deleteCmd = &cobra.Command{
@@ -93,7 +98,8 @@ var compInvokeCmd = &cobra.Command{
 	Run:   invokeWorkflow,
 }
 
-var compName, funcName, runtime, handler, customImage, src, qosClass, jsonSrc string
+var compName, funcName, runtime, handler, customImage, src, jsonSrc string
+var qosClass int64
 var requestId string
 var memory int64
 var cpuDemand, qosMaxRespT float64
@@ -106,6 +112,8 @@ var verbose bool
 var returnOutput bool
 var update bool
 var maxConcurrency int16
+var prewarmCount int64
+var forcePull bool
 var externalProvider string
 
 func Init() {
@@ -116,7 +124,7 @@ func Init() {
 	rootCmd.AddCommand(invokeCmd)
 	invokeCmd.Flags().StringVarP(&funcName, "function", "f", "", "name of the function")
 	invokeCmd.Flags().Float64VarP(&qosMaxRespT, "resptime", "", -1.0, "Max. response time (optional)")
-	invokeCmd.Flags().StringVarP(&qosClass, "class", "c", "", "QoS class (optional)")
+	invokeCmd.Flags().Int64VarP(&qosClass, "class", "c", 0, "QoS class ID (optional)")
 	invokeCmd.Flags().StringSliceVarP(&params, "param", "p", nil, "Function parameter: <name>:<value>")
 	invokeCmd.Flags().StringVarP(&paramsFile, "params_file", "j", "", "File containing parameters (JSON)")
 	invokeCmd.Flags().BoolVarP(&asyncInvocation, "async", "a", false, "Asynchronous invocation")
@@ -136,7 +144,10 @@ func Init() {
 	createCmd.Flags().StringSliceVarP(&outputs, "output", "o", nil, "Output specification: <name>:<type>")
 	//For AWS Lambda function registration
 	createCmd.Flags().StringVarP(&externalProvider, "external_provider", "", "", "Deploy also to an external provider (aws, gcp, azure etc...)")
-
+	rootCmd.AddCommand(prewarmCmd)
+	prewarmCmd.Flags().StringVarP(&funcName, "function", "f", "", "name of the function")
+	prewarmCmd.Flags().Int64VarP(&prewarmCount, "count", "c", 1, "num of instances to launch")
+	prewarmCmd.Flags().BoolVarP(&forcePull, "force_pull", "", false, "Force pull of container image")
 	rootCmd.AddCommand(deleteCmd)
 	deleteCmd.Flags().StringVarP(&funcName, "function", "f", "", "name of the function")
 
@@ -154,7 +165,7 @@ func Init() {
 	rootCmd.AddCommand(compInvokeCmd)
 	compInvokeCmd.Flags().StringVarP(&compName, "workflow", "f", "", "name of the workflow")
 	compInvokeCmd.Flags().Float64VarP(&qosMaxRespT, "resptime", "r", -1.0, "Max. response time (optional)")
-	compInvokeCmd.Flags().StringVarP(&qosClass, "class", "c", "", "QoS class (optional)")
+	compInvokeCmd.Flags().Int64VarP(&qosClass, "class", "c", 0, "QoS class ID (optional)")
 	compInvokeCmd.Flags().StringSliceVarP(&params, "param", "p", nil, "Workflow parameter: <name>:<value>")
 	compInvokeCmd.Flags().StringVarP(&paramsFile, "params_file", "j", "", "File containing parameters (JSON) for workflow")
 	compInvokeCmd.Flags().BoolVarP(&asyncInvocation, "async", "a", false, "Asynchronous workflow invocation")
@@ -227,7 +238,7 @@ func invoke(cmd *cobra.Command, args []string) {
 	// Prepare request
 	request := client.InvocationRequest{
 		Params:   paramsMap,
-		QoSClass: api.DecodeServiceClass(qosClass),
+		QoSClass: qosClass,
 		// QoSClass:        qosClass,
 		QoSMaxRespT:     qosMaxRespT,
 		CanDoOffloading: true,
@@ -279,6 +290,36 @@ func buildSignature() (*function.Signature, error) {
 	}
 
 	return sb.Build(), nil
+}
+
+func prewarm(cmd *cobra.Command, args []string) {
+	if funcName == "" {
+		showHelpAndExit(cmd)
+	}
+	if prewarmCount < 1 {
+		fmt.Printf("Invalid prewarm count: %d\n", prewarmCount)
+		showHelpAndExit(cmd)
+	}
+
+	request := client.PrewarmingRequest{
+		Function:       funcName,
+		Instances:      prewarmCount,
+		ForceImagePull: forcePull,
+	}
+	requestBody, err := json.Marshal(request)
+	if err != nil {
+		showHelpAndExit(cmd)
+	}
+
+	apiName := "prewarm"
+
+	url := fmt.Sprintf("http://%s:%d/%s", ServerConfig.Host, ServerConfig.Port, apiName)
+	resp, err := utils.PostJson(url, requestBody)
+	if err != nil {
+		fmt.Printf("Prewarming request failed: %v\n", err)
+		os.Exit(2)
+	}
+	utils.PrintJsonResponse(resp.Body)
 }
 
 func create(cmd *cobra.Command, args []string) {
@@ -580,7 +621,11 @@ func invokeWorkflow(cmd *cobra.Command, args []string) {
 	request := client.WorkflowInvocationRequest{
 		Params:          paramsMap,
 		CanDoOffloading: true,
-		Async:           asyncInvocation}
+		QoS: function.RequestQoS{
+			Class:    qosClass,
+			MaxRespT: qosMaxRespT,
+		},
+		Async: asyncInvocation}
 	invocationBody, err := json.Marshal(request)
 	if err != nil {
 		cmd.Help()

@@ -9,12 +9,13 @@ import (
 	"net/http"
 )
 
-type IlpOffloadingPolicy struct{}
+type HEFTlessPolicy struct{}
 
-func (policy *IlpOffloadingPolicy) Init() {
+func (policy *HEFTlessPolicy) Init() {
+
 }
 
-func (policy *IlpOffloadingPolicy) Evaluate(r *Request, p *Progress) (OffloadingDecision, error) {
+func (policy *HEFTlessPolicy) Evaluate(r *Request, p *Progress) (OffloadingDecision, error) {
 
 	completed := 0
 
@@ -33,10 +34,17 @@ func (policy *IlpOffloadingPolicy) Evaluate(r *Request, p *Progress) (Offloading
 		if found {
 			log.Printf("Reusing cached placement\n")
 			return computeDecisionFromPlacement(*placement, p, r), nil
+		} else {
+			// No rescheduling admitted
+			return OffloadingDecision{Offload: false}, fmt.Errorf("HEFTless does not support re-scheduling during execution")
 		}
 	}
 
 	params := prepareParameters(r, p)
+	if r.QoS.MaxRespT <= 0.0 {
+		// User did not specify a deadline
+		params.Deadline = 99999
+	}
 
 	// Serialize to JSON
 	jsonData, err := json.Marshal(params)
@@ -45,9 +53,9 @@ func (policy *IlpOffloadingPolicy) Evaluate(r *Request, p *Progress) (Offloading
 	}
 
 	// Create POST request
-	ilpOptimizerHost := config.GetString(config.WORKFLOW_OFFLOADING_POLICY_OPTIMIZER_HOST, "localhost")
-	ilpOptimizerPort := config.GetInt(config.WORKFLOW_OFFLOADING_POLICY_OPTIMIZER_PORT, 8080)
-	url := fmt.Sprintf("http://%s:%d/ilp", ilpOptimizerHost, ilpOptimizerPort)
+	optimizerHost := config.GetString(config.WORKFLOW_OFFLOADING_POLICY_OPTIMIZER_HOST, "localhost")
+	optimizerPort := config.GetInt(config.WORKFLOW_OFFLOADING_POLICY_OPTIMIZER_PORT, 8080)
+	url := fmt.Sprintf("http://%s:%d/heftless", optimizerHost, optimizerPort)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return OffloadingDecision{Offload: false}, fmt.Errorf("creating request: %w", err)
@@ -75,8 +83,7 @@ func (policy *IlpOffloadingPolicy) Evaluate(r *Request, p *Progress) (Offloading
 		return OffloadingDecision{Offload: false}, fmt.Errorf("decoding response: %w", err)
 	}
 
-	defaultTTL := config.GetInt(config.WORKFLOW_OFFLOADING_POLICY_ILP_PLACEMENT_TTL, 2) - 1
-	cacheSolution(r, &placement, defaultTTL)
+	cacheSolution(r, &placement, 9999)
 
 	for k, v := range placement {
 		fmt.Printf("Task: %s -> %s \n", k, v)

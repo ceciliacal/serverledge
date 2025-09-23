@@ -1,4 +1,4 @@
-package lambda
+package utils
 
 import (
 	"context"
@@ -14,7 +14,7 @@ const ConfigDirectory string = "./internal/externalprovider/lambda/aws/config"
 const DefaultProfile = "lambda"
 const ServerUrlLambda = "aws:externalprovider"
 
-func loadAWSConfig() (aws.Config, error) {
+func LoadAWSConfig() (aws.Config, error) {
 	return config.LoadDefaultConfig(context.TODO(),
 		config.WithSharedCredentialsFiles([]string{CredentialsDirectory}),
 		config.WithSharedConfigFiles([]string{ConfigDirectory}),

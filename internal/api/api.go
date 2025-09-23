@@ -215,18 +215,6 @@ func DeleteFunction(c echo.Context) error {
 	return c.JSON(http.StatusOK, response)
 }
 
-func DecodeServiceClass(serviceClass string) (p function.ServiceClass) {
-	if serviceClass == "low" {
-		return function.LOW
-	} else if serviceClass == "performance" {
-		return function.HIGH_PERFORMANCE
-	} else if serviceClass == "availability" {
-		return function.HIGH_AVAILABILITY
-	} else {
-		return function.LOW
-	}
-}
-
 // GetServerStatus simple api to check the current server status
 func GetServerStatus(c echo.Context) error {
 	node.Resources.RLock()
@@ -242,6 +230,7 @@ func GetServerStatus(c echo.Context) error {
 	response := registration.StatusInformation{
 		AvailableWarmContainers: node.WarmStatus(),
 		AvailableMemMB:          node.Resources.AvailableMemMB,
+		UsedMemMB:               node.Resources.UsedMemMB,
 		AvailableCPUs:           node.Resources.AvailableCPUs,
 		Coordinates:             *registration.VivaldiClient.GetCoordinate(),
 		LoadAvg:                 loadAvgValues,

@@ -28,13 +28,19 @@ import (
 var offloadingPolicy OffloadingPolicy = &IlpOffloadingPolicy{}
 
 func CreateOffloadingPolicy() {
-	policyConf := config.GetString(config.OFFLOADING_POLICY, "disable")
+	policyConf := config.GetString(config.WORKFLOW_OFFLOADING_POLICY, "disable")
 	log.Printf("Configured offloading policy: %s\n", policyConf)
 	if policyConf == "ilp" {
 		offloadingPolicy = &IlpOffloadingPolicy{}
+	} else if policyConf == "heftless" {
+		offloadingPolicy = &HEFTlessPolicy{}
+	} else if policyConf == "threshold" {
+		offloadingPolicy = &ThresholdBasedPolicy{}
 	} else { // default, disable offloading
 		offloadingPolicy = &NoOffloadingPolicy{}
 	}
+
+	offloadingPolicy.Init()
 }
 
 // Workflow is a Workflow to drive the execution of the workflow
@@ -465,7 +471,7 @@ func (wflow *Workflow) Invoke(r *Request) error {
 				return fmt.Errorf("Could not retrieve progress after offloading: %v", err)
 			}
 			log.Printf("Ready to execute after offloading: %v", progress.ReadyToExecute)
-		} else {
+		} else if err == nil {
 			// pick next executable task
 			var taskToExecute TaskId = ""
 			for _, task := range progress.ReadyToExecute {
@@ -531,6 +537,8 @@ func (wflow *Workflow) Invoke(r *Request) error {
 
 				return nil
 			}
+		} else {
+			return fmt.Errorf("an error occurred in policy evaluation: %v", err)
 		}
 
 	}

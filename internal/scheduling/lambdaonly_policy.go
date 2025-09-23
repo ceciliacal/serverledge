@@ -13,7 +13,6 @@ func (p *LambdaPolicy) Init() {}
 func (p *LambdaPolicy) OnCompletion(_ *function.Function, _ *function.ExecutionReport) {}
 
 func (p *LambdaPolicy) OnArrival(r *scheduledRequest) {
-
 	if r.CanDoOffloading {
 		log.Printf("[LambdaPolicy] Offloading to AWS Lambda...")
 		handleLambdaOffload(r)

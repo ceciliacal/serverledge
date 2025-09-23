@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"io"
 	"log"
 	"math/rand"
@@ -43,7 +44,7 @@ func Offload(r *function.Request, serverUrl string) (function.ExecutionReport, e
 	sendingTime := time.Now() // used to compute latency later on
 
 	//Manage AWS Lambda offload
-	if strings.HasPrefix(serverUrl, "aws:externalprovider") {
+	if strings.HasPrefix(serverUrl, utils.ServerUrlLambda) {
 		log.Printf("Offloading to AWS Lambda the function")
 		executionReport, err := offloadToLambda(r, invocationBody, sendingTime)
 		if err != nil {
@@ -110,7 +111,7 @@ func OffloadAsync(r *function.Request, serverUrl string) error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Remote returned: %v", resp.StatusCode)
+		return fmt.Errorf("remote returned: %v", resp.StatusCode)
 	}
 
 	// there is nothing to wait for
@@ -130,7 +131,7 @@ func offloadToLambda(request *function.Request, invocationBody []byte, sendingTi
 	if err != nil {
 		completions <- &completionNotification{
 			fun:             request.Fun,
-			cont:            nil, // non c’è container locale
+			cont:            nil, // External Execution
 			executionReport: nil,
 		}
 		return function.ExecutionReport{}, err
@@ -144,6 +145,7 @@ func offloadToLambda(request *function.Request, invocationBody []byte, sendingTi
 	if report.OffloadLatency < 0 {
 		report.OffloadLatency = 0
 	}
+	report.SchedAction = SCHED_ACTION_OFFLOAD
 
 	completions <- &completionNotification{
 		fun:             request.Fun,

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"github.com/serverledge-faas/serverledge/internal/function"
 	"log"
 	"strings"
@@ -36,7 +37,7 @@ const RolePolicy = "arn:aws:iam::222255904815:role/lambda-simple-role"
 
 func GetProvider() (Provider, error) {
 	once.Do(func() {
-		cfg, err := loadAWSConfig()
+		cfg, err := utils.LoadAWSConfig()
 		if err != nil {
 			initErr = fmt.Errorf("failed to load AWS config: %w", err)
 			return
@@ -218,13 +219,13 @@ func (p Provider) InvokeProviderFunction(request *function.Request, payload []by
 	}
 
 	var durSec float64
-	if d, ok := ExtractDurationFromLog(out.LogResult); ok {
+	if d, ok := utils.ExtractDurationFromLog(out.LogResult); ok {
 		durSec = d
 	}
 
 	var initSec float64
 	isWarm := true
-	if v, ok := ExtractInitDurationFromLog(out.LogResult); ok {
+	if v, ok := utils.ExtractInitDurationFromLog(out.LogResult); ok {
 		initSec = v
 		isWarm = false
 	}

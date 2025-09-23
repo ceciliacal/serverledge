@@ -3,7 +3,6 @@ package function
 import (
 	"encoding/json"
 	"fmt"
-
 	"time"
 
 	"github.com/serverledge-faas/serverledge/internal/cache"
