@@ -4,13 +4,8 @@ global:
   evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
 
 scrape_configs:
-  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
   - job_name: "serverledge"
-
-    # metrics_path defaults to '/metrics'
-    # scheme defaults to 'http'.
-
     static_configs:
-      - targets: ["172.17.0.1:1323", "172.17.0.1:1324"]
+      - targets: ["127.0.0.1:1323", "127.0.0.1:1326"]
 
 

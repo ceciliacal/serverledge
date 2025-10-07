@@ -1,0 +1,5 @@
+api.port: 1326
+registry.udp.port: 9873
+scheduling.policy: localonly
+metrics.enabled: true
+registry.area: "rome"
