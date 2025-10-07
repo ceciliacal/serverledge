@@ -26,6 +26,12 @@ var (
 	initErr          error
 )
 
+var (
+	region     string
+	regionOnce sync.Once
+	regionErr  error
+)
+
 type Provider struct {
 	client *lambda.Client
 	role   string
@@ -42,9 +48,9 @@ func GetProvider() (Provider, error) {
 			initErr = fmt.Errorf("failed to load AWS config: %w", err)
 			return
 		}
-
 		client := lambda.NewFromConfig(cfg)
 		providerInstance = Provider{client: client}
+		region = cfg.Region
 	})
 
 	if initErr != nil {
@@ -52,6 +58,29 @@ func GetProvider() (Provider, error) {
 	}
 
 	return providerInstance, nil
+}
+
+func GetRegion() (string, error) {
+	regionOnce.Do(func() {
+		// Se la regione non è stata già impostata da GetProvider, la leggiamo adesso
+		if region == "" {
+			cfg, err := utils.LoadAWSConfig()
+			if err != nil {
+				regionErr = fmt.Errorf("failed to load AWS config for region: %w", err)
+				return
+			}
+			if cfg.Region == "" {
+				regionErr = fmt.Errorf("AWS region not configured")
+				return
+			}
+			region = cfg.Region
+		}
+	})
+
+	if regionErr != nil {
+		return "", regionErr
+	}
+	return region, nil
 }
 
 const defaultTimeout = 900
@@ -72,7 +101,7 @@ func (p Provider) CreateFunction(ctx context.Context, fn *function.Function) (st
 	parts := strings.SplitN(fn.Handler, ".", 2)
 	fileBase := parts[0] + ".py"
 
-	zipBytes, err := createZipFromCode(lambdaCode, fileBase)
+	zipBytes, err := CreateZipFromCode(lambdaCode, fileBase)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert tar to zip: %w", err)
 	}
@@ -111,7 +140,7 @@ func (p Provider) CreateFunction(ctx context.Context, fn *function.Function) (st
 	return aws.ToString(out.FunctionArn), nil
 }
 
-func createZipFromCode(pythonCode, filename string) ([]byte, error) {
+func CreateZipFromCode(pythonCode, filename string) ([]byte, error) {
 	var buf bytes.Buffer
 	zipWriter := zip.NewWriter(&buf)
 
@@ -231,7 +260,7 @@ func (p Provider) InvokeProviderFunction(request *function.Request, payload []by
 	}
 
 	report = function.ExecutionReport{
-		Output:      string(out.Payload),
+		Result:      string(out.Payload),
 		IsWarmStart: isWarm,
 		Duration:    durSec,  // da log
 		InitTime:    initSec, // SOLO cold start da log

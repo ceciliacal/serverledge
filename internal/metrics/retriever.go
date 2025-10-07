@@ -3,6 +3,8 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"github.com/serverledge-faas/serverledge/internal/registration"
 	"log"
 	"time"
@@ -176,6 +178,13 @@ func MetricsRetriever() {
 			}
 			retrievedMetrics.AvgOutputSize = avgOutputSize
 
+			query = fmt.Sprintf("%s_sum{}/%s_count{}", INPUT_SIZE, INPUT_SIZE)
+			avgInputSize, err := retrieveByFunction(query, api, ctx)
+			if err != nil {
+				log.Printf("Error in retrieveByFunction: %v", err)
+			}
+			retrievedMetrics.AvgInputSize = avgInputSize
+
 			query = fmt.Sprintf("%s{}", BRANCH_COUNT)
 			frequencyPerTaskAndNextOne, err := retrieveByTaskAndNextTask(query, api, ctx)
 			if err != nil {
@@ -200,6 +209,15 @@ func MetricsRetriever() {
 				log.Printf("Error in retrieveByFunction: %v", err)
 			}
 			retrievedMetrics.AvgEdgeInitTime = avgInitTimeAllNodes
+
+			//Probability Cold Start Edge
+			query = fmt.Sprintf("%s{area=\"%s\"}/%s{area=\"%s\"}",
+				COLD_STARTS, localArea, COMPLETIONS, localArea)
+			edgeColdStartProb, err := retrieveByFunction(query, api, ctx)
+			if err != nil {
+				log.Printf("Error in retrieveByFunction: %v", err)
+			}
+			retrievedMetrics.EdgeColdStartProbability = edgeColdStartProb
 
 			// CLOUD
 			cloudArea := config.GetString(config.REGISTRY_REMOTE_AREA, "")
@@ -230,6 +248,37 @@ func MetricsRetriever() {
 				retrievedMetrics.AvgRemoteExecutionTime = make(map[string]float64)
 				retrievedMetrics.AvgRemoteInitTime = make(map[string]float64)
 			}
+
+			//EXTERNAL PROVIDER
+			region, err := lambda.GetRegion()
+			if err != nil {
+				panic(err)
+			}
+			extArea := utils.ExternalProvider + region
+
+			query = fmt.Sprintf("%s{area=\"%s\"}/%s{area=\"%s\"}",
+				COLD_STARTS, extArea, COMPLETIONS, extArea)
+			coldStartProbPerFunction, err := retrieveByFunction(query, api, ctx)
+			if err != nil {
+				log.Printf("Error in retrieveByFunction (ext cold prob): %v", err)
+			}
+			retrievedMetrics.ExtPrvColdStartProbability = coldStartProbPerFunction
+
+			query = fmt.Sprintf("%s_sum{node=\"%s\"}/%s_count{node=\"%s\"}",
+				EXECUTION_TIME, extArea, EXECUTION_TIME, extArea)
+			avgFunDuration, err := retrieveByFunction(query, api, ctx)
+			if err != nil {
+				log.Printf("Error in retrieveByFunction (ext exec): %v", err)
+			}
+			retrievedMetrics.AvgExtPrvRemoteExecutionTime = avgFunDuration
+
+			query = fmt.Sprintf("%s_sum{node=\"%s\"}/%s_count{node=\"%s\"}",
+				INITIALIZATION_TIME, extArea, INITIALIZATION_TIME, extArea)
+			avgInitTime, err := retrieveByFunction(query, api, ctx)
+			if err != nil {
+				log.Printf("Error in retrieveByFunction (ext init): %v", err)
+			}
+			retrievedMetrics.AvgExtPrvRemoteInitTime = avgInitTime
 
 			fmt.Println("All queries completed")
 			fmt.Println(retrievedMetrics)

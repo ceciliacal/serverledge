@@ -20,6 +20,7 @@ import (
 )
 
 const SCHED_ACTION_OFFLOAD = "O"
+const SCHED_ACTION_EXT_PRV_OFFLOAD = "OEP"
 
 func pickEdgeNodeForOffloading(r *scheduledRequest) (url string) {
 	// TODO: better to cache choice for a while
@@ -31,6 +32,10 @@ func pickEdgeNodeForOffloading(r *scheduledRequest) (url string) {
 
 	randomItem := nearestNeighbors[rand.Intn(len(nearestNeighbors))]
 	return randomItem.APIUrl()
+}
+
+func pickEdgeNodeMemAvailableForOffloading(r *scheduledRequest) (url string) {
+	return ""
 }
 
 func Offload(r *function.Request, serverUrl string) (function.ExecutionReport, error) {
@@ -145,7 +150,7 @@ func offloadToLambda(request *function.Request, invocationBody []byte, sendingTi
 	if report.OffloadLatency < 0 {
 		report.OffloadLatency = 0
 	}
-	report.SchedAction = SCHED_ACTION_OFFLOAD
+	report.SchedAction = SCHED_ACTION_EXT_PRV_OFFLOAD
 
 	completions <- &completionNotification{
 		fun:             request.Fun,

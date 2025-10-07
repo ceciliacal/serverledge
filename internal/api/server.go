@@ -119,6 +119,8 @@ func CreateSchedulingPolicy() scheduling.Policy {
 		return &scheduling.EdgePolicy{}
 	} else if policyConf == "lambdaonly" {
 		return &scheduling.LambdaPolicy{}
+	} else if policyConf == "policyscheduling" {
+		return &scheduling.IlpOffloadingPolicy{}
 	} else { // default, localonly
 		return &scheduling.DefaultLocalPolicy{}
 	}

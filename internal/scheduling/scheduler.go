@@ -1,7 +1,10 @@
 package scheduling
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"github.com/serverledge-faas/serverledge/internal/registration"
 	"log"
 	"net/http"
@@ -60,18 +63,42 @@ func Run(p Policy) {
 			go p.OnArrival(r)
 		case c = <-completions:
 			if c.cont != nil {
-				node.HandleCompletion(c.cont, c.fun) //Temporally Solution for External Provider
+				node.HandleCompletion(c.cont, c.fun) //Temporally solution for External Provider Crash (No container)
 			}
 			p.OnCompletion(c.fun, c.executionReport)
+
 			if metrics.Enabled && c.executionReport != nil {
-				metrics.AddCompletedInvocation(c.fun.Name, !c.executionReport.IsWarmStart)
-				if c.executionReport.SchedAction != SCHED_ACTION_OFFLOAD {
+				if c.executionReport.SchedAction != SCHED_ACTION_EXT_PRV_OFFLOAD {
+					metrics.AddCompletedInvocation(c.fun.Name, !c.executionReport.IsWarmStart)
+				}
+				if c.executionReport.SchedAction != SCHED_ACTION_OFFLOAD && c.executionReport.SchedAction != SCHED_ACTION_EXT_PRV_OFFLOAD {
 					metrics.AddFunctionDurationValue(c.fun.Name, c.executionReport.Duration)
 					if !c.executionReport.IsWarmStart {
 						metrics.AddFunctionInitTimeValue(c.fun.Name, c.executionReport.InitTime)
 					}
+				} else if c.executionReport.SchedAction == SCHED_ACTION_EXT_PRV_OFFLOAD {
+					extPrvRegion, err := lambda.GetRegion()
+					if err != nil {
+						panic(err)
+					}
+					nodeArea := utils.ExternalProvider + extPrvRegion
+					metrics.AddRemoteCompletedInvocation(c.fun.Name, nodeArea, !c.executionReport.IsWarmStart)
+					metrics.AddRemoteFunctionDurationValue(c.fun.Name, nodeArea, c.executionReport.Duration)
+					if !c.executionReport.IsWarmStart {
+						metrics.AddRemoteFunctionInitTimeValue(c.fun.Name, nodeArea, c.executionReport.InitTime)
+					}
 				}
+
 				outputSize := len(c.executionReport.Result)
+
+				jsonParams, err := json.Marshal(r.Params)
+				if err != nil {
+					log.Printf("Impossible serialize function: '%s' for calculating input size: %v", r.Fun.Name, err)
+					return
+				}
+				inputSizeBytes := len(jsonParams)
+
+				metrics.AddFunctionInputSizeValue(r.Fun.Name, float64(inputSizeBytes))
 				metrics.AddFunctionOutputSizeValue(r.Fun.Name, float64(outputSize))
 			}
 		}
@@ -95,17 +122,14 @@ func SubmitRequest(r *function.Request) (function.ExecutionReport, error) {
 	if !ok {
 		return function.ExecutionReport{}, fmt.Errorf("could not schedule the request")
 	}
-	//log.Printf("[%s] Scheduling decision: %v", r, schedDecision)
 
 	if telemetry.DefaultTracer != nil {
 		trace.SpanFromContext(r.Ctx).AddEvent("Scheduling complete")
 	}
 
 	if schedDecision.action == DROP {
-		//log.Printf("[%s] Dropping request", r)
 		return function.ExecutionReport{}, node.OutOfResourcesErr
 	} else if schedDecision.action == EXEC_REMOTE {
-		//log.Printf("Offloading request")
 		return Offload(r, schedDecision.remoteHost)
 	} else {
 		return Execute(schedDecision.cont, &schedRequest, schedDecision.useWarm)

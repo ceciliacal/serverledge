@@ -111,8 +111,38 @@ const WORKFLOW_THRESHOLD_BASED_POLICY_THRESHOLD = "workflow.offloading.policy.th
 // Max number of tasks offloaded at once in the threshold-based offloading policy
 const WORKFLOW_THRESHOLD_BASED_POLICY_MAX_OFFLOADED = "workflow.offloading.policy.threshold.offloaded.max"
 
+const FUNCTION_OFFLOADING_POLICY_ILP_OBJ_WEIGHT_VIOLATIONS = "function.offloading.policy.ilp.obj.violations"
+const FUNCTION_OFFLOADING_POLICY_ILP_OBJ_WEIGHT_COST = "function.offloading.policy.ilp.obj.cost"
+
 // IP address / hostname used by ILP Offloading Policy for solving the ILP formulation
-const FUNCTION_OFFLOADING_POLICY_OPTIMIZER_HOST = "offloading.policy.optimizer.host"
+const FUNCTION_OFFLOADING_POLICY_OPTIMIZER_HOST = "function.offloading.policy.optimizer.host"
 
 // Port used by ILP Offloading Policy for solving the ILP formulation
-const FUNCTION_OFFLOADING_POLICY_OPTIMIZER_PORT = "offloading.policy.optimizer.port"
+const FUNCTION_OFFLOADING_POLICY_OPTIMIZER_PORT = "function.offloading.policy.optimizer.port"
+
+// Costo locale
+const FUNCTION_OFFLOADING_POLICY_REGION_COST = "function.offloading.policy.region.cost"
+
+// Cost Gb/Sec
+const FUNCTION_OFFLOADING_COMPUTE_REGION_COST_GB_SEC = "function.offloading.compute.region.cost.gb.sec"
+
+// Cost per request
+const FUNCTION_OFFLOADING_COMPUTE_REGION_REQUEST_COST = "function.offloading.compute.region.request.cost"
+
+const FUNCTION_OFFLOADING_POLICY_NODE_TO_DATA_STORE_BANDWIDTH = "function.offloading.policy.node2datastore.bandwidth"
+
+const FUNCTION_OFFLOADING_POLICY_LAMBDA_TO_DATA_STORE_BANDWIDTH = "function.offloading.policy.lambda.to.data.store.bandwidth"
+
+const FUNCTION_OFFLOADING_POLICY_UPDATE_INTERVAL = "function.offloading.policy.update.interval"
+
+const EXTERNAL_PROVIDER_ENABLED = "external.provider.enabled"
+
+const FUNCTION_OFFLOADING_BUDGET = "function.offloading.budget"
+
+const FUNCTION_OFFLOADING_QOS_CLASSES_PATH = "function.offloading.qos.classes.path"
+
+const POLICY_ARRIVAL_RATE_ALPHA = "policy.arrival.rate.alpha"
+
+const POLICY_FUNCTION_NAME = "policy.function.name"
+
+const FUNCTION_OFFLOADING_POLICY_LAMBDA_PING_INTERVAL = "function.offloading.policy.lambda.ping.interval"

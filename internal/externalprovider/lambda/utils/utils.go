@@ -13,6 +13,7 @@ const CredentialsDirectory string = "./internal/externalprovider/lambda/aws/cred
 const ConfigDirectory string = "./internal/externalprovider/lambda/aws/config"
 const DefaultProfile = "lambda"
 const ServerUrlLambda = "aws:externalprovider"
+const ExternalProvider = "AWS:"
 
 func LoadAWSConfig() (aws.Config, error) {
 	return config.LoadDefaultConfig(context.TODO(),
@@ -32,7 +33,7 @@ func ExtractDurationFromLog(logResultB64 *string) (float64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	// Esempio riga: "REPORT RequestId: ... Duration: 1.57 ms ..."
+	//"REPORT RequestId: ... Duration: 1.57 ms ..."
 	re := regexp.MustCompile(`Duration:\s*([\d\.]+)\s*ms`)
 	m := re.FindSubmatch(raw)
 	if m == nil {
@@ -57,7 +58,7 @@ func ExtractInitDurationFromLog(logResultB64 *string) (float64, bool) {
 		return 0.0, false
 	}
 
-	// Esempio riga: "REPORT RequestId: ... Init Duration: 105.08 ms ..."
+	//"REPORT RequestId: ... Init Duration: 105.08 ms ..."
 	re := regexp.MustCompile(`Init Duration:\s*([\d\.]+)\s*ms`)
 	m := re.FindSubmatch(raw)
 	if m == nil {

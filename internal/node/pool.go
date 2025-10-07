@@ -60,6 +60,21 @@ func newContainerPool() *ContainerPool {
 	return fp
 }
 
+func CanExecuteLocally(cpuDemand float64, memDemand int64) bool {
+	Resources.Lock()
+	defer Resources.Unlock()
+
+	if Resources.AvailableCPUs < cpuDemand {
+		return false
+	}
+
+	if Resources.AvailableMemMB < memDemand {
+		return false
+	}
+
+	return true
+}
+
 // AcquireResources reserves the specified amount of cpu and memory if possible.
 func AcquireResources(cpuDemand float64, memDemand int64, destroyContainersIfNeeded bool) bool {
 	Resources.Lock()
