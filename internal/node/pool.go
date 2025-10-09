@@ -20,12 +20,12 @@ var NoWarmFoundErr = errors.New("no warm container is available")
 
 // GetContainerPool retrieves (or creates) the container pool for a function.
 func GetContainerPool(f *function.Function) *ContainerPool {
-	if fp, ok := Resources.ContainerPools[f.Name]; ok {
+	if fp, ok := LocalResources.containerPools[f.Name]; ok {
 		return fp
 	}
 
 	fp := newContainerPool()
-	Resources.ContainerPools[f.Name] = fp
+	LocalResources.containerPools[f.Name] = fp
 	return fp
 }
 
@@ -60,56 +60,36 @@ func newContainerPool() *ContainerPool {
 	return fp
 }
 
-// AcquireResources reserves the specified amount of cpu and memory if possible.
-func AcquireResources(cpuDemand float64, memDemand int64, destroyContainersIfNeeded bool) bool {
-	Resources.Lock()
-	defer Resources.Unlock()
-	return acquireResources(cpuDemand, memDemand, false, destroyContainersIfNeeded)
-}
-
-// acquireResources reserves the specified amount of cpu and memory if possible.
-// The function is NOT thread-safe.
-func acquireResources(cpuDemand float64, memDemand int64, isMemoryReclaimable bool, destroyContainersIfNeeded bool) bool {
-	if Resources.AvailableCPUs < cpuDemand {
+func acquireNewMemory(mem int64, forWarmPool bool) bool {
+	if LocalResources.AvailableMemory() < mem {
 		return false
 	}
-	if Resources.AvailableMemMB < memDemand {
-		if !destroyContainersIfNeeded {
-			return false
-		}
 
-		enoughMem, _ := dismissContainer(memDemand - Resources.AvailableMemMB)
-		if !enoughMem {
+	if LocalResources.FreeMemory() < mem {
+		ok, err := dismissContainer(mem - LocalResources.FreeMemory())
+		if err != nil || !ok {
 			return false
 		}
 	}
 
-	Resources.AvailableCPUs -= cpuDemand
-	Resources.AvailableMemMB -= memDemand
-	if !isMemoryReclaimable {
-		Resources.UsedMemMB += memDemand
+	if forWarmPool {
+		LocalResources.warmPoolUsedMem += mem
+	} else {
+		LocalResources.busyPoolUsedMem += mem
 	}
 
 	return true
 }
 
-// releaseResources releases the specified amount of cpu and memory.
-// The function is NOT thread-safe.
-func releaseResources(releasedCPU float64, releasedBusyMemory int64, releasedWarmMemory int64) {
-	Resources.AvailableCPUs += releasedCPU
-	Resources.AvailableMemMB += releasedWarmMemory
-	Resources.UsedMemMB -= releasedBusyMemory
-}
-
-// AcquireWarmContainer acquires a warm container for a given function (if any).
+// acquireWarmContainer acquires a warm container for a given function (if any).
 // A warm container is in running/paused state and has already been initialized
 // with the function code.
 // The function returns an error if either:
 // (i) the warm container does not exist
 // (ii) there are not enough resources to start the container
-func AcquireWarmContainer(f *function.Function) (*container.Container, error) {
-	Resources.Lock()
-	defer Resources.Unlock()
+func acquireWarmContainer(f *function.Function) (*container.Container, error) {
+	LocalResources.Lock()
+	defer LocalResources.Unlock()
 
 	fp := GetContainerPool(f)
 
@@ -129,30 +109,36 @@ func AcquireWarmContainer(f *function.Function) (*container.Container, error) {
 		return nil, NoWarmFoundErr
 	}
 
-	if !acquireResources(f.CPUDemand, 0, false, false) {
+	if LocalResources.AvailableCPUs() < f.CPUDemand {
 		//log.Printf("Not enough CPU to start a warm container for %s", f)
 		return nil, OutOfResourcesErr
 	}
-	Resources.UsedMemMB += f.MemoryMB // TODO: move into acquireResources; memory is already occupied, but becoming busy
+	LocalResources.busyPoolUsedMem += f.MemoryMB
+	LocalResources.warmPoolUsedMem -= f.MemoryMB
+	LocalResources.usedCPUs += f.CPUDemand
 
 	// add container to the busy pool
 	c.RequestsCount = 1
 	fp.busy.PushBack(c)
 
-	log.Printf("Using warm %s for %s. Now: %v", c.ID, f, Resources)
+	log.Printf("Using warm %s for %s. Now: %v", c.ID, f, &LocalResources)
 	return c, nil
 }
 
-func AcquireContainer(f *function.Function) (*container.Container, bool, error) {
-	c, err := AcquireWarmContainer(f)
+func AcquireContainer(f *function.Function, onlyIfWarm bool) (*container.Container, bool, error) {
+	c, err := acquireWarmContainer(f)
 	if err == nil {
 		return c, true, nil
 	} else if !errors.Is(err, NoWarmFoundErr) {
 		return nil, true, err
 	}
 
+	if onlyIfWarm {
+		return nil, false, NoWarmFoundErr
+	}
+
 	// Cold start required
-	if !AcquireResources(f.CPUDemand, f.MemoryMB, true) {
+	if !AcquireResourcesForNewContainer(f, false) {
 		return nil, false, OutOfResourcesErr
 	}
 	c, err = NewContainerWithAcquiredResources(f, false, false)
@@ -160,8 +146,8 @@ func AcquireContainer(f *function.Function) (*container.Container, bool, error) 
 }
 
 func HandleCompletion(cont *container.Container, f *function.Function) {
-	Resources.Lock()
-	defer Resources.Unlock()
+	LocalResources.Lock()
+	defer LocalResources.Unlock()
 
 	cont.RequestsCount--
 	if cont.RequestsCount == 0 {
@@ -185,34 +171,29 @@ func HandleCompletion(cont *container.Container, f *function.Function) {
 		d := time.Duration(config.GetInt(config.CONTAINER_EXPIRATION_TIME, 600)) * time.Second
 		cont.ExpirationTime = time.Now().Add(d).UnixNano()
 		fp.idle.PushBack(cont)
-		releaseResources(f.CPUDemand, f.MemoryMB, 0)
+
+		LocalResources.usedCPUs -= f.CPUDemand
+		LocalResources.busyPoolUsedMem -= f.MemoryMB
+		LocalResources.warmPoolUsedMem += f.MemoryMB
 	}
 }
 
-// NewContainer creates and starts a new container for the given function.
-// The container can be directly used to schedule a request, as it is already
-// in the busy pool.
-func NewContainer(fun *function.Function, markAsIdle bool, forceImagePull bool) (*container.Container, error) {
-	Resources.Lock()
+func AcquireResourcesForNewContainer(fun *function.Function, forWarmPool bool) bool {
+	LocalResources.Lock()
+	defer LocalResources.Unlock()
 
-	var cpuDemand float64
-	if markAsIdle {
-		cpuDemand = 0.0
-	} else {
-		cpuDemand = fun.CPUDemand
+	if LocalResources.AvailableCPUs() < fun.CPUDemand {
+		return false
 	}
-	reclaimableMemory := markAsIdle // memory will not be considered used
-
-	if !acquireResources(cpuDemand, fun.MemoryMB, reclaimableMemory, true) {
-		//log.Printf("Not enough resources for the new container.\n")
-		Resources.Unlock()
-		return nil, OutOfResourcesErr
+	ok := acquireNewMemory(fun.MemoryMB, forWarmPool)
+	if !ok {
+		return false
 	}
 
-	//log.Printf("Acquired resources for new container. Now: %v", Resources)
-	Resources.Unlock()
-
-	return NewContainerWithAcquiredResources(fun, markAsIdle, forceImagePull)
+	if !forWarmPool {
+		LocalResources.usedCPUs += fun.CPUDemand
+	}
+	return true
 }
 
 // NewContainerWithAcquiredResources spawns a new container for the given
@@ -225,10 +206,11 @@ func NewContainerWithAcquiredResources(fun *function.Function, startAsIdle bool,
 		log.Printf("Failed container creation: %v\n", err)
 	}
 
-	Resources.Lock()
-	defer Resources.Unlock()
+	LocalResources.Lock()
+	defer LocalResources.Unlock()
 	if err != nil {
-		releaseResources(fun.CPUDemand, fun.MemoryMB, fun.MemoryMB)
+		LocalResources.busyPoolUsedMem -= fun.MemoryMB
+		LocalResources.usedCPUs -= fun.CPUDemand
 		return nil, err
 	}
 
@@ -241,6 +223,29 @@ func NewContainerWithAcquiredResources(fun *function.Function, startAsIdle bool,
 	}
 
 	return cont, nil
+}
+
+func NewContainerWithAcquiredResourcesAsync(fun *function.Function, okCallback func(cont *container.Container), errCallback func(e error)) {
+	go func() {
+		cont, err := container.CreateContainer(fun, false)
+		if err != nil {
+			log.Printf("Failed container creation: %v\n", err)
+			errCallback(err)
+		}
+
+		LocalResources.Lock()
+		defer LocalResources.Unlock()
+		if err != nil {
+			LocalResources.busyPoolUsedMem -= fun.MemoryMB
+			LocalResources.usedCPUs -= fun.CPUDemand
+			return
+		}
+
+		fp := GetContainerPool(fun)
+		cont.RequestsCount = 1
+		fp.busy.PushBack(cont) // We immediately mark it as busy
+		okCallback(cont)
+	}()
 }
 
 type itemToDismiss struct {
@@ -259,7 +264,7 @@ func dismissContainer(requiredMemoryMB int64) (bool, error) {
 	var containerToDismiss []itemToDismiss
 
 	//first phase, research
-	for _, funPool := range Resources.ContainerPools {
+	for _, funPool := range LocalResources.containerPools {
 		if funPool.idle.Len() > 0 {
 			// every container into the funPool has the same memory (same function)
 			//so it is not important which one you destroy
@@ -289,7 +294,7 @@ cleanup: // second phase, cleanup
 			if err != nil {
 				return false, err
 			}
-			releaseResources(0, 0, item.memory)
+			LocalResources.warmPoolUsedMem -= item.memory
 		}
 	} else {
 		log.Printf("Not enough containers to free up at least %d MB (avail to dismiss: %d)", requiredMemoryMB, cleanedMB)
@@ -302,10 +307,10 @@ cleanup: // second phase, cleanup
 func DeleteExpiredContainer() {
 	now := time.Now().UnixNano()
 
-	Resources.Lock()
-	defer Resources.Unlock()
+	LocalResources.Lock()
+	defer LocalResources.Unlock()
 
-	for _, pool := range Resources.ContainerPools {
+	for _, pool := range LocalResources.containerPools {
 		elem := pool.idle.Front()
 		for ok := elem != nil; ok; ok = elem != nil {
 			warm := elem.Value.(*container.Container)
@@ -316,12 +321,12 @@ func DeleteExpiredContainer() {
 				pool.idle.Remove(temp) // remove the expired element
 
 				memory, _ := container.GetMemoryMB(warm.ID)
-				releaseResources(0, 0, memory)
+				LocalResources.warmPoolUsedMem -= memory
 				err := container.Destroy(warm.ID)
 				if err != nil {
 					log.Printf("Error while destroying container %s: %s\n", warm.ID, err)
 				}
-				// log.Printf("Released resources. Now: %v\n", &Resources)
+				// log.Printf("Released resources. Now: %v\n", &LocalResources)
 			} else {
 				elem = elem.Next()
 			}
@@ -333,10 +338,10 @@ func DeleteExpiredContainer() {
 // ShutdownWarmContainersFor destroys warm containers of a given function
 // Actual termination happens asynchronously.
 func ShutdownWarmContainersFor(f *function.Function) {
-	Resources.Lock()
-	defer Resources.Unlock()
+	LocalResources.Lock()
+	defer LocalResources.Unlock()
 
-	fp, ok := Resources.ContainerPools[f.Name]
+	fp, ok := LocalResources.containerPools[f.Name]
 	if !ok {
 		return
 	}
@@ -352,7 +357,7 @@ func ShutdownWarmContainersFor(f *function.Function) {
 		fp.idle.Remove(temp)
 
 		memory, _ := container.GetMemoryMB(warmed.ID)
-		releaseResources(0, 0, memory)
+		LocalResources.warmPoolUsedMem -= memory
 		containersToDelete = append(containersToDelete, warmed.ID)
 	}
 
@@ -370,53 +375,53 @@ func ShutdownWarmContainersFor(f *function.Function) {
 
 // ShutdownAllContainers destroys all container (usually on termination)
 func ShutdownAllContainers() {
-	Resources.Lock()
-	defer Resources.Unlock()
+	LocalResources.Lock()
+	defer LocalResources.Unlock()
 
-	for fun, pool := range Resources.ContainerPools {
+	for fun, pool := range LocalResources.containerPools {
+		functionDescriptor, _ := function.GetFunction(fun)
+		if functionDescriptor == nil {
+			log.Printf("Could not find function, cannot shutdown containers: %s\n", fun)
+			continue // should not happen
+		}
+
 		for elem := pool.idle.Front(); elem != nil; elem = elem.Next() {
 			warmed := elem.Value.(*container.Container)
 			temp := elem
 			log.Printf("Removing container with ID %s\n", warmed.ID)
 			pool.idle.Remove(temp)
 
-			memory, _ := container.GetMemoryMB(warmed.ID)
 			err := container.Destroy(warmed.ID)
 			if err != nil {
 				log.Printf("Error while destroying container %s: %s", warmed.ID, err)
 			}
-			releaseResources(0, 0, memory)
+			LocalResources.warmPoolUsedMem -= functionDescriptor.MemoryMB
 		}
 
-		functionDescriptor, _ := function.GetFunction(fun)
-
-		for elem := pool.idle.Front(); elem != nil; elem = elem.Next() {
+		for elem := pool.busy.Front(); elem != nil; elem = elem.Next() {
 			contID := elem.Value.(*container.Container).ID
 			temp := elem
 			log.Printf("Removing container with ID %s\n", contID)
 			pool.idle.Remove(temp)
 
-			memory, errMem := container.GetMemoryMB(contID)
-			if errMem != nil {
-				log.Printf("failed to get memory from container %s before destroying it: %v", contID, errMem)
-				continue
-			}
 			err := container.Destroy(contID)
 			if err != nil {
 				log.Printf("failed to destroy container %s: %v\n", contID, err)
 				continue
 			}
-			releaseResources(functionDescriptor.CPUDemand, memory, memory)
+
+			LocalResources.usedCPUs -= functionDescriptor.CPUDemand
+			LocalResources.busyPoolUsedMem -= functionDescriptor.MemoryMB
 		}
 	}
 }
 
 // WarmStatus foreach function returns the corresponding number of warm container available
 func WarmStatus() map[string]int {
-	Resources.RLock()
-	defer Resources.RUnlock()
+	LocalResources.RLock()
+	defer LocalResources.RUnlock()
 	warmPool := make(map[string]int)
-	for funcName, pool := range Resources.ContainerPools {
+	for funcName, pool := range LocalResources.containerPools {
 		warmPool[funcName] = pool.idle.Len()
 	}
 
@@ -426,7 +431,12 @@ func WarmStatus() map[string]int {
 func PrewarmInstances(f *function.Function, count int64, forcePull bool) (int64, error) {
 	var spawned int64 = 0
 	for spawned < count {
-		_, err := NewContainer(f, true, forcePull)
+		if !AcquireResourcesForNewContainer(f, true) {
+			//log.Printf("Not enough resources for the new container.\n")
+			return spawned, OutOfResourcesErr
+		}
+
+		_, err := NewContainerWithAcquiredResources(f, true, forcePull)
 		if err != nil {
 			log.Printf("Prespawning failed: %v\n", err)
 			return spawned, err
