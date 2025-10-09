@@ -486,7 +486,7 @@ func deleteFunction(cmd *cobra.Command, args []string) {
 
 	request := function.Function{Name: funcName}
 
-	if externalDeployment, arnCode, ok := function.GetExternalProvider(funcName); ok && externalDeployment != "" {
+	if externalDeployment, arnCode, ok := function.GetArnFromName(funcName); ok && externalDeployment != "" {
 		request.ArnCode = arnCode
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

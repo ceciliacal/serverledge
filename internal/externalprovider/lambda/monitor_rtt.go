@@ -47,7 +47,7 @@ func InitRttMonitor(updateInterval time.Duration, fnArn string) {
 	go monitor.monitorLoop(updateInterval)
 }
 
-func GetLambdaRtt() time.Duration {
+func (p Provider) GetRtt() time.Duration {
 	if defaultRttMonitor == nil {
 		log.Printf("Warning: RTT Monitor not initialized, sending default value...")
 		return 40 * time.Millisecond //Approximation for a Europe Region like Frankfurt

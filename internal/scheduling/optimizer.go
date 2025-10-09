@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/ghodss/yaml"
 	"github.com/serverledge-faas/serverledge/internal/config"
-	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider"
 	"github.com/serverledge-faas/serverledge/internal/function"
 	"github.com/serverledge-faas/serverledge/internal/metrics"
 	"github.com/serverledge-faas/serverledge/internal/node"
@@ -132,7 +132,9 @@ func (policy *IlpOffloadingPolicy) optimizerLoop() {
 		} else {
 			log.Printf("Polling: Response status: %s", resp.Status)
 		}
-		resp.Body.Close()
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Errorin closing body for %s: %v", url, closeErr)
+		}
 	}
 }
 
@@ -213,8 +215,12 @@ func (policy *IlpOffloadingPolicy) prepareOptimizerParams() (optimizerPayload, e
 
 		params.Budget = budget
 
-		cloudRegion, err := lambda.GetRegion()
+		provider, err := externalprovider.NewOffloader(externalprovider.LambdaOffloader)
+		if err != nil {
+			return optimizerPayload{}, fmt.Errorf("impossible obtain provider: %w", err)
+		}
 
+		cloudRegion, err := provider.GetRegion()
 		if err != nil {
 			return optimizerPayload{}, fmt.Errorf("impossible obtain cloudRegion: %w", err)
 		}
@@ -235,7 +241,7 @@ func (policy *IlpOffloadingPolicy) prepareOptimizerParams() (optimizerPayload, e
 		//Now we need to measure latency to Lambda
 		//Latency locale misurata come: TCP 3-way handshake
 
-		distanceToCloudDuration := lambda.GetLambdaRtt()
+		distanceToCloudDuration := provider.GetRtt()
 		distanceToCloudSec := distanceToCloudDuration.Seconds()
 
 		for _, n := range params.EdgeNodes {

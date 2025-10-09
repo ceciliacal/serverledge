@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
-	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider"
 	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"github.com/serverledge-faas/serverledge/internal/registration"
 	"log"
@@ -250,11 +250,13 @@ func MetricsRetriever() {
 			}
 
 			//EXTERNAL PROVIDER
-			region, err := lambda.GetRegion()
+			provider, err := externalprovider.NewOffloader("aws") // We can do better for manages more provider
 			if err != nil {
-				panic(err)
+				log.Printf("Error taking External Provider Offloader: %v\n", err)
 			}
-			extArea := utils.ExternalProvider + region
+			region, err := provider.GetRegion()
+
+			extArea := utils.ExternalProvider + region //Same thing as above
 
 			query = fmt.Sprintf("%s{area=\"%s\"}/%s{area=\"%s\"}",
 				COLD_STARTS, extArea, COMPLETIONS, extArea)

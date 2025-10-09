@@ -34,10 +34,6 @@ func pickEdgeNodeForOffloading(r *scheduledRequest) (url string) {
 	return randomItem.APIUrl()
 }
 
-func pickEdgeNodeMemAvailableForOffloading(r *scheduledRequest) (url string) {
-	return ""
-}
-
 func Offload(r *function.Request, serverUrl string) (function.ExecutionReport, error) {
 	// Prepare request
 	request := client.InvocationRequest{Params: r.Params, QoSClass: r.Class, QoSMaxRespT: r.MaxRespT}
@@ -70,7 +66,7 @@ func Offload(r *function.Request, serverUrl string) (function.ExecutionReport, e
 		if resp.StatusCode == http.StatusTooManyRequests {
 			return function.ExecutionReport{}, node.OutOfResourcesErr
 		}
-		return function.ExecutionReport{}, fmt.Errorf("Remote returned: %v", resp.StatusCode)
+		return function.ExecutionReport{}, fmt.Errorf("remote returned: %v", resp.StatusCode)
 	}
 
 	var response function.Response

@@ -3,7 +3,7 @@ package scheduling
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider"
 	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"github.com/serverledge-faas/serverledge/internal/registration"
 	"log"
@@ -77,9 +77,15 @@ func Run(p Policy) {
 						metrics.AddFunctionInitTimeValue(c.fun.Name, c.executionReport.InitTime)
 					}
 				} else if c.executionReport.SchedAction == SCHED_ACTION_EXT_PRV_OFFLOAD {
-					extPrvRegion, err := lambda.GetRegion()
+					provider, err := externalprovider.NewOffloader("aws")
 					if err != nil {
-						panic(err)
+						log.Printf("Error taking provider: %v", err)
+						return
+					}
+					extPrvRegion, err := provider.GetRegion()
+					if err != nil {
+						log.Printf("Error taking provider region: %v", err)
+						return
 					}
 					nodeArea := utils.ExternalProvider + extPrvRegion
 					metrics.AddRemoteCompletedInvocation(c.fun.Name, nodeArea, !c.executionReport.IsWarmStart)

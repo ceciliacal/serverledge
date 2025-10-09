@@ -177,7 +177,7 @@ func GetAllWithPrefix(prefix string) ([]string, error) {
 	return functions, ctx.Err()
 }
 
-func GetExternalProvider(name string) (string, string, bool) {
+func GetArnFromName(name string) (string, string, bool) {
 	f, ok := GetFunction(name)
 	if !ok || f == nil || f.ExternalProvider == "" || f.ArnCode == "" {
 		return "", "", false

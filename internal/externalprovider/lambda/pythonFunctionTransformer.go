@@ -47,7 +47,6 @@ func transformServerledgeToAWSLambda(fn function.Function, tarCode []byte) (stri
 
 func parsePythonFunctions(code string) ([]PythonFunction, error) {
 
-	// 2) -u = unbuffered; CombinedOutput cattura anche stderr
 	cmd := exec.Command("python3", "-u", parserPath)
 
 	cmd.Stdin = strings.NewReader(code)

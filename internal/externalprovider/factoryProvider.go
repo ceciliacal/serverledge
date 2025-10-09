@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
 	"github.com/serverledge-faas/serverledge/internal/function"
+	"time"
 )
 
 type Provider interface {
@@ -12,7 +13,11 @@ type Provider interface {
 	ListFunctions(ctx context.Context) ([]string, error)
 	InvokeProviderFunction(request *function.Request, payload []byte) (function.ExecutionReport, error)
 	DeleteProviderFunction(ctx context.Context, function *function.Function) error
+	GetRegion() (string, error)
+	GetRtt() time.Duration
 }
+
+const LambdaOffloader = "aws"
 
 func NewOffloader(name string) (Provider, error) {
 	switch name {

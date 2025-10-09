@@ -33,8 +33,18 @@ var (
 )
 
 type Provider struct {
-	client *lambda.Client
-	role   string
+	client      LambdaAPI
+	role        string
+	transformer codeTransformer
+}
+
+type codeTransformer func(function.Function, []byte) (string, error)
+
+type LambdaAPI interface {
+	Invoke(ctx context.Context, params *lambda.InvokeInput, optFns ...func(*lambda.Options)) (*lambda.InvokeOutput, error)
+	CreateFunction(ctx context.Context, params *lambda.CreateFunctionInput, optFns ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error)
+	DeleteFunction(ctx context.Context, params *lambda.DeleteFunctionInput, optFns ...func(*lambda.Options)) (*lambda.DeleteFunctionOutput, error)
+	ListFunctions(ctx context.Context, params *lambda.ListFunctionsInput, optFns ...func(*lambda.Options)) (*lambda.ListFunctionsOutput, error)
 }
 
 const maxSyncPayloadBytes = 6 * 1024 * 1024
@@ -49,7 +59,7 @@ func GetProvider() (Provider, error) {
 			return
 		}
 		client := lambda.NewFromConfig(cfg)
-		providerInstance = Provider{client: client}
+		providerInstance = Provider{client: client, transformer: transformServerledgeToAWSLambda}
 		region = cfg.Region
 	})
 
@@ -60,7 +70,7 @@ func GetProvider() (Provider, error) {
 	return providerInstance, nil
 }
 
-func GetRegion() (string, error) {
+func (p Provider) GetRegion() (string, error) {
 	regionOnce.Do(func() {
 		// Se la regione non è stata già impostata da GetProvider, la leggiamo adesso
 		if region == "" {
@@ -93,7 +103,7 @@ func (p Provider) CreateFunction(ctx context.Context, fn *function.Function) (st
 	}
 
 	//Qui traduzione codice
-	lambdaCode, err := transformServerledgeToAWSLambda(*fn, tarBytes)
+	lambdaCode, err := p.transformer(*fn, tarBytes)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert code to a compatible AWS Lambda version: %w", err)
 	}
@@ -144,8 +154,7 @@ func CreateZipFromCode(pythonCode, filename string) ([]byte, error) {
 	var buf bytes.Buffer
 	zipWriter := zip.NewWriter(&buf)
 
-	// Crea il file Python nel ZIP
-	fileWriter, err := zipWriter.Create(filename) // es: "lambda_function.py"
+	fileWriter, err := zipWriter.Create(filename)
 	if err != nil {
 		return nil, err
 	}
