@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,10 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/labstack/gommon/log"
-
 	"github.com/serverledge-faas/serverledge/internal/client"
 	"github.com/serverledge-faas/serverledge/internal/config"
 	"github.com/serverledge-faas/serverledge/internal/function"
@@ -237,9 +234,8 @@ func invoke(cmd *cobra.Command, args []string) {
 
 	// Prepare request
 	request := client.InvocationRequest{
-		Params:   paramsMap,
-		QoSClass: qosClass,
-		// QoSClass:        qosClass,
+		Params:          paramsMap,
+		QoSClass:        qosClass,
 		QoSMaxRespT:     qosMaxRespT,
 		CanDoOffloading: true,
 		ReturnOutput:    returnOutput,
@@ -375,9 +371,6 @@ func create(cmd *cobra.Command, args []string) {
 		ExternalProvider: externalProvider,
 	}
 
-	endAWS := time.Duration(0)
-	awsUsed := false
-
 	if externalProvider != "" {
 		if runtime != "python310" {
 			fmt.Println("Runtime non ancora implementato: usa runtime python310")
@@ -388,10 +381,7 @@ func create(cmd *cobra.Command, args []string) {
 				os.Exit(1)
 			}
 
-			t0 := time.Now()
 			arnCode, err := provider.CreateFunction(cmd.Context(), &request)
-			endAWS = time.Since(t0)
-			awsUsed = true
 
 			if err == nil {
 				request.ArnCode = arnCode
@@ -412,7 +402,6 @@ func create(cmd *cobra.Command, args []string) {
 		apiName = "update"
 	}
 
-	start := time.Now()
 	url := fmt.Sprintf("http://%s:%d/%s", ServerConfig.Host, ServerConfig.Port, apiName)
 	resp, err := utils.PostJson(url, requestBody)
 	if err != nil {
@@ -420,15 +409,7 @@ func create(cmd *cobra.Command, args []string) {
 		fmt.Printf("Creation request failed: %v\n", err)
 		os.Exit(2)
 	}
-	timeHttp := time.Since(start)
-
 	utils.PrintJsonResponse(resp.Body)
-
-	log.Printf("Tempo speso nella creazione HTTP: %s\n", timeHttp)
-	if awsUsed {
-		log.Printf("Tempo speso nella creazione Lambda: %s\n", endAWS)
-	}
-
 }
 
 func ReadSourcesAsTar(srcPath string) ([]byte, error) {
@@ -488,8 +469,6 @@ func deleteFunction(cmd *cobra.Command, args []string) {
 
 	if externalDeployment, arnCode, ok := function.GetArnFromName(funcName); ok && externalDeployment != "" {
 		request.ArnCode = arnCode
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
 
 		provider, err := externalprovider.NewOffloader(externalDeployment)
 		if err != nil {
@@ -497,7 +476,7 @@ func deleteFunction(cmd *cobra.Command, args []string) {
 			os.Exit(1)
 		}
 
-		if err := provider.DeleteProviderFunction(ctx, &request); err != nil {
+		if err := provider.DeleteProviderFunction(cmd.Context(), &request); err != nil {
 			fmt.Printf("External provider deletion failed: %v\n", err)
 			os.Exit(2)
 		}
@@ -517,7 +496,6 @@ func deleteFunction(cmd *cobra.Command, args []string) {
 		os.Exit(2)
 	}
 	utils.PrintJsonResponse(resp.Body)
-
 }
 
 func listFunctions(cmd *cobra.Command, args []string) {
@@ -527,7 +505,6 @@ func listFunctions(cmd *cobra.Command, args []string) {
 		fmt.Printf("List request failed: %v\n", err)
 		os.Exit(2)
 	}
-
 	utils.PrintJsonResponse(resp.Body)
 
 	if externalProvider != "" {
@@ -538,13 +515,9 @@ func listFunctions(cmd *cobra.Command, args []string) {
 			os.Exit(1)
 		}
 
-		base := cmd.Context() // parent context
-		ctx, cancel := context.WithTimeout(base, 5*time.Second)
-		defer cancel()
-
 		log.Printf("Listing function on provider: %s", externalProvider)
 
-		functionList, err := provider.ListFunctions(ctx)
+		functionList, err := provider.ListFunctions(cmd.Context())
 
 		if err != nil {
 			fmt.Printf("Creation of function failed: %v\n", err)

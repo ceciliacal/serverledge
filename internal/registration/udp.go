@@ -70,8 +70,10 @@ func handleUDPConnection(conn *net.UDPConn) {
 func getCurrentStatusInformation() (status []byte, err error) {
 	response := StatusInformation{
 		AvailableWarmContainers: node.WarmStatus(),
-		AvailableMemMB:          node.Resources.AvailableMemMB,
-		AvailableCPUs:           node.Resources.AvailableCPUs,
+		TotalMemory:             node.LocalResources.TotalMemory(),
+		TotalCPU:                node.LocalResources.TotalCPUs(),
+		UsedMemory:              node.LocalResources.UsedMemory(),
+		UsedCPU:                 node.LocalResources.UsedCPUs(),
 		Coordinates:             *VivaldiClient.GetCoordinate(),
 	}
 

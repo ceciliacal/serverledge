@@ -8,13 +8,16 @@ import (
 // scheduledRequest represents a Request within the scheduling subsystem
 type scheduledRequest struct {
 	*function.Request
-	decisionChannel chan schedDecision
+	*function.ExecutionReport
+	offloaded          bool
+	onExternalProvider bool
+	decisionChannel    chan schedDecision
 }
 
 type completionNotification struct {
-	fun             *function.Function
-	cont            *container.Container
-	executionReport *function.ExecutionReport
+	failed bool
+	r      *scheduledRequest
+	cont   *container.Container
 }
 
 // schedDecision wraps a action made by the scheduler.

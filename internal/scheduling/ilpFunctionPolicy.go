@@ -86,7 +86,7 @@ func (policy *IlpOffloadingPolicy) OnArrival(r *scheduledRequest) {
 	if decision.action == 0 {
 		dropRequest(r)
 	} else if decision.action == 1 { //Local execution
-		containerID, warm, err := node.AcquireContainer(r.Fun)
+		containerID, warm, err := node.AcquireContainer(r.Fun, false)
 		if err == nil {
 			execLocally(r, containerID, warm)
 		} else {
@@ -98,9 +98,11 @@ func (policy *IlpOffloadingPolicy) OnArrival(r *scheduledRequest) {
 		edgeNodes := make([]string, 0)
 		nodeMemory := make(map[string]float64)
 		for k, v := range nearbyServers {
-			if v.AvailableCPUs > 0 && v.AvailableMemMB > r.Fun.MemoryMB {
+			availableCPU := v.TotalCPU - v.UsedCPU
+			availableMemory := v.TotalMemory - v.UsedMemory
+			if availableCPU > 0 && availableMemory > r.Fun.MemoryMB {
 				edgeNodes = append(edgeNodes, k)
-				nodeMemory[k] = float64(v.AvailableMemMB)
+				nodeMemory[k] = float64(availableMemory)
 			}
 		}
 		selectedEdge, err := selectEdgePeer(edgeNodes, nodeMemory)

@@ -1,14 +1,12 @@
 module github.com/serverledge-faas/serverledge
 
-go 1.22
-
-toolchain go1.22.5
+go 1.24
 
 require (
+	github.com/buger/jsonparser v1.1.1
 	github.com/aws/aws-sdk-go-v2 v1.36.6
 	github.com/aws/aws-sdk-go-v2/config v1.29.18
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.72.1
-	github.com/buger/jsonparser v1.1.1
 	github.com/docker/docker v24.0.5+incompatible
 	github.com/hexablock/vivaldi v0.0.0-20180727225019-07adad3f2b5f
 	github.com/labstack/echo/v4 v4.6.1

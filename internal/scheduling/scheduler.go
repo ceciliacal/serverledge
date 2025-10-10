@@ -8,10 +8,8 @@ import (
 	"github.com/serverledge-faas/serverledge/internal/registration"
 	"log"
 	"net/http"
-	"runtime"
 	"time"
 
-	"github.com/serverledge-faas/serverledge/internal/config"
 	"github.com/serverledge-faas/serverledge/internal/container"
 	"github.com/serverledge-faas/serverledge/internal/function"
 	"github.com/serverledge-faas/serverledge/internal/metrics"
@@ -30,12 +28,8 @@ func Run(p Policy) {
 	requests = make(chan *scheduledRequest, 500)
 	completions = make(chan *completionNotification, 500)
 
-	// initialize resources
-	availableCores := runtime.NumCPU()
-	node.Resources.AvailableMemMB = int64(config.GetInt(config.POOL_MEMORY_MB, 1024))
-	node.Resources.AvailableCPUs = config.GetFloat(config.POOL_CPUS, float64(availableCores))
-	node.Resources.ContainerPools = make(map[string]*node.ContainerPool)
-	log.Printf("Current resources: %v\n", &node.Resources)
+	node.LocalResources.Init()
+	log.Printf("Current resources: %v\n", &node.LocalResources)
 
 	container.InitDockerContainerFactory()
 
@@ -63,59 +57,59 @@ func Run(p Policy) {
 			go p.OnArrival(r)
 		case c = <-completions:
 			if c.cont != nil {
-				node.HandleCompletion(c.cont, c.fun) //Temporally solution for External Provider Crash (No container)
+				node.HandleCompletion(c.cont, c.r.Fun)
 			}
-			p.OnCompletion(c.fun, c.executionReport)
+			p.OnCompletion(c.r.Fun, c.r.ExecutionReport)
 
-			if metrics.Enabled && c.executionReport != nil {
-				if c.executionReport.SchedAction != SCHED_ACTION_EXT_PRV_OFFLOAD {
-					metrics.AddCompletedInvocation(c.fun.Name, !c.executionReport.IsWarmStart)
-				}
-				if c.executionReport.SchedAction != SCHED_ACTION_OFFLOAD && c.executionReport.SchedAction != SCHED_ACTION_EXT_PRV_OFFLOAD {
-					metrics.AddFunctionDurationValue(c.fun.Name, c.executionReport.Duration)
-					if !c.executionReport.IsWarmStart {
-						metrics.AddFunctionInitTimeValue(c.fun.Name, c.executionReport.InitTime)
-					}
-				} else if c.executionReport.SchedAction == SCHED_ACTION_EXT_PRV_OFFLOAD {
+			if metrics.Enabled && !c.failed && c.r.ExecutionReport != nil {
+
+				if c.r.onExternalProvider {
 					provider, err := externalprovider.NewOffloader("aws")
 					if err != nil {
-						log.Printf("Error taking provider: %v", err)
-						return
+						log.Printf("Errore nel recupero del provider: %v", err)
+					} else {
+						extPrvRegion, err := provider.GetRegion()
+						if err != nil {
+							log.Printf("Errore nel recupero della regione del provider: %v", err)
+						} else {
+							nodeArea := utils.ExternalProvider + extPrvRegion
+							metrics.AddRemoteCompletedInvocation(c.r.Fun.Name, nodeArea, !c.r.ExecutionReport.IsWarmStart)
+							metrics.AddRemoteFunctionDurationValue(c.r.Fun.Name, nodeArea, c.r.ExecutionReport.Duration)
+							if !c.r.ExecutionReport.IsWarmStart {
+								metrics.AddRemoteFunctionInitTimeValue(c.r.Fun.Name, nodeArea, c.r.ExecutionReport.InitTime)
+							}
+						}
 					}
-					extPrvRegion, err := provider.GetRegion()
-					if err != nil {
-						log.Printf("Error taking provider region: %v", err)
-						return
-					}
-					nodeArea := utils.ExternalProvider + extPrvRegion
-					metrics.AddRemoteCompletedInvocation(c.fun.Name, nodeArea, !c.executionReport.IsWarmStart)
-					metrics.AddRemoteFunctionDurationValue(c.fun.Name, nodeArea, c.executionReport.Duration)
-					if !c.executionReport.IsWarmStart {
-						metrics.AddRemoteFunctionInitTimeValue(c.fun.Name, nodeArea, c.executionReport.InitTime)
+				} else {
+					metrics.AddCompletedInvocation(c.r.Fun.Name, !c.r.ExecutionReport.IsWarmStart)
+
+					if !c.r.offloaded {
+						metrics.AddFunctionDurationValue(c.r.Fun.Name, c.r.ExecutionReport.Duration)
+						if !c.r.ExecutionReport.IsWarmStart {
+							metrics.AddFunctionInitTimeValue(c.r.Fun.Name, c.r.ExecutionReport.InitTime)
+						}
 					}
 				}
+				outputSize := len(c.r.ExecutionReport.Result)
+				metrics.AddFunctionOutputSizeValue(c.r.Fun.Name, float64(outputSize))
 
-				outputSize := len(c.executionReport.Result)
-
-				jsonParams, err := json.Marshal(r.Params)
+				jsonParams, err := json.Marshal(c.r.Params)
 				if err != nil {
-					log.Printf("Impossible serialize function: '%s' for calculating input size: %v", r.Fun.Name, err)
-					return
+					log.Printf("Impossibile serializzare i parametri per la funzione '%s': %v", c.r.Fun.Name, err)
+				} else {
+					inputSizeBytes := len(jsonParams)
+					metrics.AddFunctionInputSizeValue(c.r.Fun.Name, float64(inputSizeBytes))
 				}
-				inputSizeBytes := len(jsonParams)
-
-				metrics.AddFunctionInputSizeValue(r.Fun.Name, float64(inputSizeBytes))
-				metrics.AddFunctionOutputSizeValue(r.Fun.Name, float64(outputSize))
 			}
 		}
 	}
-
 }
 
 // SubmitRequest submits a newly arrived request for scheduling and execution
-func SubmitRequest(r *function.Request) (function.ExecutionReport, error) {
+func SubmitRequest(r *function.Request) (*function.ExecutionReport, error) {
 	schedRequest := scheduledRequest{
 		Request:         r,
+		ExecutionReport: &function.ExecutionReport{},
 		decisionChannel: make(chan schedDecision, 1)}
 	requests <- &schedRequest
 
@@ -126,19 +120,24 @@ func SubmitRequest(r *function.Request) (function.ExecutionReport, error) {
 	// wait on channel for scheduling action
 	schedDecision, ok := <-schedRequest.decisionChannel
 	if !ok {
-		return function.ExecutionReport{}, fmt.Errorf("could not schedule the request")
+		return nil, fmt.Errorf("could not schedule the request")
 	}
+	//log.Printf("[%s] Scheduling decision: %v", r, schedDecision)
 
 	if telemetry.DefaultTracer != nil {
 		trace.SpanFromContext(r.Ctx).AddEvent("Scheduling complete")
 	}
 
 	if schedDecision.action == DROP {
-		return function.ExecutionReport{}, node.OutOfResourcesErr
+		//log.Printf("[%s] Dropping request", r)
+		return nil, node.OutOfResourcesErr
 	} else if schedDecision.action == EXEC_REMOTE {
-		return Offload(r, schedDecision.remoteHost)
+		//log.Printf("Offloading request")
+		err := Offload(&schedRequest, schedDecision.remoteHost)
+		return schedRequest.ExecutionReport, err
 	} else {
-		return Execute(schedDecision.cont, &schedRequest, schedDecision.useWarm)
+		err := Execute(schedDecision.cont, &schedRequest, schedDecision.useWarm)
+		return schedRequest.ExecutionReport, err
 	}
 }
 
@@ -146,6 +145,7 @@ func SubmitRequest(r *function.Request) (function.ExecutionReport, error) {
 func SubmitAsyncRequest(r *function.Request) {
 	schedRequest := scheduledRequest{
 		Request:         r,
+		ExecutionReport: &function.ExecutionReport{},
 		decisionChannel: make(chan schedDecision, 1)}
 	requests <- &schedRequest // send async request
 
@@ -166,12 +166,12 @@ func SubmitAsyncRequest(r *function.Request) {
 			publishAsyncResponse(r.Id(), function.Response{Success: false})
 		}
 	} else {
-		report, err := Execute(schedDecision.cont, &schedRequest, schedDecision.useWarm)
+		err = Execute(schedDecision.cont, &schedRequest, schedDecision.useWarm)
 		if err != nil {
 			publishAsyncResponse(r.Id(), function.Response{Success: false})
 			return
 		}
-		publishAsyncResponse(r.Id(), function.Response{Success: true, ExecutionReport: report})
+		publishAsyncResponse(r.Id(), function.Response{Success: true, ExecutionReport: *schedRequest.ExecutionReport})
 	}
 }
 

@@ -19,9 +19,6 @@ import (
 	"github.com/serverledge-faas/serverledge/internal/registration"
 )
 
-const SCHED_ACTION_OFFLOAD = "O"
-const SCHED_ACTION_EXT_PRV_OFFLOAD = "OEP"
-
 func pickEdgeNodeForOffloading(r *scheduledRequest) (url string) {
 	// TODO: better to cache choice for a while
 	// TODO: check available mem as well
@@ -34,25 +31,20 @@ func pickEdgeNodeForOffloading(r *scheduledRequest) (url string) {
 	return randomItem.APIUrl()
 }
 
-func Offload(r *function.Request, serverUrl string) (function.ExecutionReport, error) {
+func Offload(r *scheduledRequest, serverUrl string) error {
 	// Prepare request
 	request := client.InvocationRequest{Params: r.Params, QoSClass: r.Class, QoSMaxRespT: r.MaxRespT}
 	invocationBody, err := json.Marshal(request)
 	if err != nil {
 		log.Print(err)
-		return function.ExecutionReport{}, err
+		return err
 	}
 	sendingTime := time.Now() // used to compute latency later on
 
 	//Manage AWS Lambda offload
 	if strings.HasPrefix(serverUrl, utils.ServerUrlLambda) {
 		log.Printf("Offloading to AWS Lambda the function")
-		executionReport, err := offloadToLambda(r, invocationBody, sendingTime)
-		if err != nil {
-			return function.ExecutionReport{}, err
-		}
-
-		return executionReport, nil
+		return offloadToLambda(r, invocationBody, sendingTime)
 	}
 
 	resp, err := offloadingClient.Post(serverUrl+"/invoke/"+r.Fun.Name, "application/json",
@@ -60,13 +52,13 @@ func Offload(r *function.Request, serverUrl string) (function.ExecutionReport, e
 
 	if err != nil {
 		log.Print(err)
-		return function.ExecutionReport{}, err
+		return err
 	}
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusTooManyRequests {
-			return function.ExecutionReport{}, node.OutOfResourcesErr
+			return node.OutOfResourcesErr
 		}
-		return function.ExecutionReport{}, fmt.Errorf("remote returned: %v", resp.StatusCode)
+		return fmt.Errorf("Remote returned: %v", resp.StatusCode)
 	}
 
 	var response function.Response
@@ -78,19 +70,17 @@ func Offload(r *function.Request, serverUrl string) (function.ExecutionReport, e
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
 	if err = json.Unmarshal(body, &response); err != nil {
-		return function.ExecutionReport{}, err
+		return err
 	}
 	now := time.Now()
 
-	execReport := &response.ExecutionReport
-	execReport.ResponseTime = now.Sub(r.Arrival).Seconds()
+	originalArrivalTime := r.Arrival
+	r.ExecutionReport = &response.ExecutionReport // switching execution report
+	r.ResponseTime = now.Sub(originalArrivalTime).Seconds()
+	r.OffloadLatency = now.Sub(sendingTime).Seconds() - r.Duration - r.InitTime
+	r.offloaded = true
 
-	// TODO: check how this is used in the QoSAware policy
-	// It was originially computed as "report.Arrival - sendingTime"
-	execReport.OffloadLatency = now.Sub(sendingTime).Seconds() - execReport.Duration - execReport.InitTime
-	execReport.SchedAction = SCHED_ACTION_OFFLOAD
-
-	return response.ExecutionReport, nil
+	return nil
 }
 
 func OffloadAsync(r *function.Request, serverUrl string) error {
@@ -119,40 +109,33 @@ func OffloadAsync(r *function.Request, serverUrl string) error {
 	return nil
 }
 
-func offloadToLambda(request *function.Request, invocationBody []byte, sendingTime time.Time) (function.ExecutionReport, error) {
+func offloadToLambda(r *scheduledRequest, invocationBody []byte, sendingTime time.Time) error {
 	provider, err := lambda.GetProvider()
-
 	if err != nil {
-		log.Print(err)
-		return function.ExecutionReport{}, err
+		log.Printf("Impossible obtain provider: %v", err)
+		completions <- &completionNotification{r: r, failed: true}
+		return err
 	}
 
-	report, err := provider.InvokeProviderFunction(request, invocationBody)
-
+	report, err := provider.InvokeProviderFunction(r.Request, invocationBody)
 	if err != nil {
-		completions <- &completionNotification{
-			fun:             request.Fun,
-			cont:            nil, // External Execution
-			executionReport: nil,
-		}
-		return function.ExecutionReport{}, err
+		log.Printf("Lambda invokation failed: %v", err)
+		completions <- &completionNotification{r: r, failed: true}
+		return err
 	}
 
 	now := time.Now()
-	report.ResponseTime = now.Sub(request.Arrival).Seconds()
-
-	report.OffloadLatency = now.Sub(sendingTime).Seconds() -
+	originalArrivalTime := r.Arrival
+	r.ExecutionReport = &report
+	r.ResponseTime = now.Sub(originalArrivalTime).Seconds()
+	r.OffloadLatency = now.Sub(sendingTime).Seconds() -
 		report.Duration - report.InitTime
-	if report.OffloadLatency < 0 {
-		report.OffloadLatency = 0
-	}
-	report.SchedAction = SCHED_ACTION_EXT_PRV_OFFLOAD
+	r.offloaded = true
+	r.onExternalProvider = true
 
 	completions <- &completionNotification{
-		fun:             request.Fun,
-		cont:            nil,
-		executionReport: &report,
+		r: r,
 	}
 
-	return report, nil
+	return nil
 }

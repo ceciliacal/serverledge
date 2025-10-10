@@ -145,7 +145,7 @@ func (policy *IlpOffloadingPolicy) prepareOptimizerParams() (optimizerPayload, e
 	params := initOptimizerParams()
 	params.HandlingNode = LOCAL
 	params.EdgeNodes = []string{LOCAL}
-	params.NodeMemory[LOCAL] = (float64)(node.Resources.AvailableMemMB)
+	params.NodeMemory[LOCAL] = (float64)(node.LocalResources.AvailableMemory())
 
 	regionCost := config.GetStringMapFloat64(config.FUNCTION_OFFLOADING_POLICY_REGION_COST)
 
@@ -160,10 +160,12 @@ func (policy *IlpOffloadingPolicy) prepareOptimizerParams() (optimizerPayload, e
 
 	if nearbyServers != nil {
 		for k, v := range nearbyServers {
-			if v.AvailableMemMB > 0 && v.AvailableCPUs > 0 {
+			availableCPU := v.TotalCPU - v.UsedCPU
+			availableMemory := v.TotalMemory - v.UsedMemory
+			if availableMemory > 0 && availableCPU > 0 {
 				params.EdgeNodes = append(params.EdgeNodes, k)
-				params.NodeMemory[k] = float64(v.AvailableMemMB)
-				params.AggregatedEdgeMemory += float64(v.AvailableMemMB)
+				params.NodeMemory[k] = float64(availableMemory)
+				params.AggregatedEdgeMemory += float64(availableMemory)
 				// Cost (assuming that Edge nodes are all in the same area)
 				params.Cost[k] = localCost
 
