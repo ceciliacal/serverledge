@@ -146,3 +146,8 @@ const POLICY_ARRIVAL_RATE_ALPHA = "policy.arrival.rate.alpha"
 const POLICY_FUNCTION_NAME = "policy.function.name"
 
 const FUNCTION_OFFLOADING_POLICY_LAMBDA_PING_INTERVAL = "function.offloading.policy.lambda.ping.interval"
+
+// power consuming features
+const PROCESSING_POWER_CONSUMPTION = "node.consumption.power"
+const TX_ENERGY_CONSUMPTION = "node.consumption.energy.tx"
+const RX_ENERGY_CONSUMPTION = "node.consumption.energy.rx"

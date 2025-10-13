@@ -1,0 +1,8 @@
+api.port: 1328
+#cloud.server.url: "http://127.0.0.1:1326"
+cloud: true
+#container.pool.memory: 8192
+scheduler.policy: localonly
+registry:
+  remote:
+    area: "ROME"

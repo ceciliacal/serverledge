@@ -1,0 +1,6 @@
+{
+  "csv_path": "./co2_traces/FR_2023_hourly.csv",
+  "timestamp_column": "Datetime (UTC)",
+  "intensity_column": "Carbon Intensity gCO₂eq/kWh (direct)",
+  "poll_interval_sec": 30
+}

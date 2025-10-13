@@ -31,6 +31,12 @@ func Run(p Policy) {
 	node.LocalResources.Init()
 	log.Printf("Current resources: %v\n", &node.LocalResources)
 
+    //todo: energy configs (fix default values)-> co2footprint potrebbe non servire come attributo
+	//node.Resources.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 100.0)
+	//node.Resources.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 100.0)
+	//node.Resources.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 100.0)
+	//node.Resources.GCo2Emissions = 0.0
+
 	container.InitDockerContainerFactory()
 
 	//janitor periodically remove expired warm container

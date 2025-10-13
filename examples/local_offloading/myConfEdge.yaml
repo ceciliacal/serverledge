@@ -1,0 +1,9 @@
+scheduler.policy: cloudonly
+cloud.server.url: "http://127.0.0.1:1328"
+cloud : false
+offloading.policy : ilp
+registry:
+  remote:
+    area: "ROME"
+  udp:
+    port: 9877
