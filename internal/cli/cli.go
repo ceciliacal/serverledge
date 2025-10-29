@@ -215,6 +215,10 @@ func invoke(cmd *cobra.Command, args []string) {
 	}
 	if len(paramsFile) > 0 {
 		jsonFile, err := os.Open(paramsFile)
+		if err != nil {
+			fmt.Printf("Could not open parameters file '%s'\n", paramsFile)
+			os.Exit(1)
+		}
 
 		defer func(jsonFile *os.File) {
 			err := jsonFile.Close()
@@ -582,6 +586,10 @@ func invokeWorkflow(cmd *cobra.Command, args []string) {
 	}
 	if len(paramsFile) > 0 {
 		jsonFile, err := os.Open(paramsFile)
+		if err != nil {
+			fmt.Printf("Could not open parameters file '%s'\n", paramsFile)
+			os.Exit(1)
+		}
 		defer jsonFile.Close()
 		byteValue, _ := io.ReadAll(jsonFile)
 		err = json.Unmarshal(byteValue, &paramsMap)
