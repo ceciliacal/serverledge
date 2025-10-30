@@ -1,10 +1,8 @@
 package registration
 
 import (
+	"context"
 	"fmt"
-	"github.com/hexablock/vivaldi"
-	"github.com/serverledge-faas/serverledge/internal/node"
-	"golang.org/x/exp/maps"
 	"log"
 	"net"
 	"path"
@@ -14,10 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hexablock/vivaldi"
+	"github.com/serverledge-faas/serverledge/internal/node"
+	"github.com/serverledge-faas/serverledge/internal/regions"
+	"golang.org/x/exp/maps"
+
 	"github.com/serverledge-faas/serverledge/internal/config"
 	"github.com/serverledge-faas/serverledge/utils"
 	"go.etcd.io/etcd/client/v3"
-	"golang.org/x/net/context"
 )
 
 const registryBaseDirectory = "registry"
@@ -38,6 +40,8 @@ var SelfRegistration *NodeRegistration
 
 var etcdClient *clientv3.Client = nil
 var etcdLease clientv3.LeaseID
+
+var CloudRegions map[string]regions.AreaInfo //key: areaName, val: AreaInfo
 
 func (r *NodeRegistration) toEtcdKey() (key string) {
 	if r.IsLoadBalancer {
@@ -194,7 +198,8 @@ func GetOneNodeInArea(area string, includeSelf bool) (NodeRegistration, error) {
 }
 
 func GetLBInArea(area string) (map[string]NodeRegistration, error) {
-	baseDir := areaEtcdKey(area) + "/" + registryLoadBalancerDirectory
+	//baseDir := areaEtcdKey(area) + "/" + registryLoadBalancerDirectory
+	baseDir := areaEtcdKey(area) + registryLoadBalancerDirectory
 
 	ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
 
@@ -231,6 +236,7 @@ func StartMonitoring() error {
 
 	neighbors = make(map[string]NodeRegistration)
 	neighborInfo = make(map[string]*StatusInformation)
+	CloudRegions = make(map[string]regions.AreaInfo)
 
 	defaultConfig := vivaldi.DefaultConfig()
 	defaultConfig.Dimensionality = 3
@@ -436,4 +442,54 @@ func GetFullNeighborInfo() map[string]*StatusInformation {
 	mutex.RLock()
 	defer mutex.RUnlock()
 	return maps.Clone(neighborInfo)
+}
+
+// ListAreas returns all distinct areas that have at least one key under "registry/<area>/..."
+func ListAreas() ([]string, error) {
+	if etcdClient == nil {
+		return nil, fmt.Errorf("etcd client not initialized")
+	}
+
+	prefix := registryBaseDirectory + "/"
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// We only need keys to extract areas
+	resp, err := etcdClient.Get(ctx, prefix, clientv3.WithPrefix(), clientv3.WithKeysOnly())
+	if err != nil {
+		return nil, fmt.Errorf("could not read from etcd: %w", err)
+	}
+
+	areasSet := make(map[string]struct{})
+	for _, kv := range resp.Kvs {
+		keyStr := string(kv.Key) // e.g. "registry/<area>/<key>" or "registry/<area>/__lb/<key>"
+		trimmed := strings.TrimPrefix(keyStr, prefix)
+		if trimmed == keyStr {
+			// not under the expected prefix; skip
+			continue
+		}
+		// First path segment after "registry/" is the area
+		parts := strings.SplitN(trimmed, "/", 2)
+		if len(parts) >= 1 && parts[0] != "" {
+			areasSet[parts[0]] = struct{}{}
+		}
+	}
+
+	areas := make([]string, 0, len(areasSet))
+	for a := range areasSet {
+		areas = append(areas, a)
+	}
+	sort.Strings(areas)
+	return areas, nil
+}
+
+// measure TCP latency in seconds to a host:port
+func GetTcpLatencySec(host string, port int) (float64, error) {
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 3*time.Second)
+	if err != nil {
+		return 0, err
+	}
+	_ = conn.Close()
+	return time.Since(start).Seconds(), nil
 }

@@ -117,6 +117,12 @@ func CreateSchedulingPolicy() scheduling.Policy {
 		return &scheduling.CloudEdgePolicy{}
 	} else if policyConf == "edgeonly" {
 		return &scheduling.EdgePolicy{}
+	} else if policyConf == "lambdaonly" {
+		return &scheduling.LambdaPolicy{}
+	} else if policyConf == "policyscheduling" {
+		return &scheduling.IlpOffloadingPolicy{}
+	} else if policyConf == "co2qosaware" {
+		return &scheduling.Co2QosAwarePolicy{}
 	} else { // default, localonly
 		return &scheduling.DefaultLocalPolicy{}
 	}

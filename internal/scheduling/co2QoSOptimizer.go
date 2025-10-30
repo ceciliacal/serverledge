@@ -1,0 +1,636 @@
+package scheduling
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"math"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/serverledge-faas/serverledge/internal/function"
+	"github.com/serverledge-faas/serverledge/internal/metrics"
+	"github.com/serverledge-faas/serverledge/internal/node"
+	"github.com/serverledge-faas/serverledge/internal/regions"
+	"github.com/serverledge-faas/serverledge/internal/registration"
+	"gopkg.in/yaml.v3"
+)
+
+type ProbsV2 struct {
+	PLocal float64
+	PEdge  float64
+	PDrop  float64
+	PCloud map[string]float64 // region -> prob
+}
+
+type OptResp struct {
+	Probs                    map[string]float64 `json:"probs"`
+	DecisionFCProbabilityVar map[string]float64 `json:"decision_fc_probability_var"`
+}
+
+type OptCarbonAwareParams struct {
+	CloudRegions      map[string][]float64 `json:"cloud_regions"`      // region -> [mem, co2, procW, txJ/B, rxJ/B, cost]
+	PossibleDecisions []string             `json:"possible_decisions"` // e.g., "LOCAL_EXEC", "OFFLOAD_EDGE", "OFFLOAD_CLOUD_<region>", "DROP"
+	Functions         []string             `json:"functions"`          // function names
+	Classes           []string             `json:"classes"`            // class names
+	// [function][class] -> λ
+	ArrivalRates map[string]map[string]float64 `json:"arrival_rates"`
+
+	//LOCAL Per-function
+	ServTimeLocal   map[string]float64 `json:"serv_time_local"`    // f -> seconds
+	InitTimeLocal   map[string]float64 `json:"init_time_local"`    // f -> seconds
+	ColdStartPLocal map[string]float64 `json:"cold_start_p_local"` // f -> seconds
+
+	// --- Flattened [region][function] -> value ---
+	ServTimeCloud   map[string]map[string]float64 `json:"serv_time_cloud"`
+	InitTimeCloud   map[string]map[string]float64 `json:"init_time_cloud"`
+	ColdStartPCloud map[string]map[string]float64 `json:"cold_start_p_cloud"`
+	// Region-only maps
+	OffloadTimeCloud map[string]float64 `json:"offload_time_cloud"` // region -> RTT seconds
+	BandwidthCloud   map[string]float64 `json:"bandwidth_cloud"`    // region -> bytes/sec
+
+	// Edge
+	AggregatedEdgeMemory float64            `json:"aggregated_edge_memory"`
+	ServTimeEdge         map[string]float64 `json:"serv_time_edge"`    // f -> seconds
+	ColdStartPEdge       map[string]float64 `json:"cold_start_p_edge"` // f -> probability
+	InitTimeEdge         map[string]float64 `json:"init_time_edge"`    // f -> seconds
+	BandwidthEdge        float64            `json:"bandwidth_edge"`    // bytes/sec
+	OffloadTimeEdge      float64            `json:"offload_time_edge"` // seconds
+
+	AggregatedEdgePowerConsumption float64 `json:"aggregated_edge_power_consumption"` // W
+	AggregatedEdgeEnergyTx         float64 `json:"aggregated_edge_energy_tx"`         // J/byte
+	AggregatedEdgeEnergyRx         float64 `json:"aggregated_edge_energy_rx"`         // J/byte
+
+	CO2GreenThreshold float64 `json:"co2_green_threshold"`
+	Alpha             float64 `json:"alpha"`
+	Beta              float64 `json:"beta"`
+
+	// Local node
+	NodeMemory                     float64 `json:"node_memory"`
+	NodeCO2Footprint               float64 `json:"node_co2_footprint"`
+	NodeProcessingPowerConsumption float64 `json:"node_processing_power_consumption"`
+	NodeTxEnergyConsumption        float64 `json:"node_tx_energy_consumption"`
+	NodeRxEnergyConsumption        float64 `json:"node_rx_energy_consumption"`
+	UsableLocalMemoryCoeff         float64 `json:"usable_local_memory_coeff"`
+	Budget                         float64 `json:"budget"`
+
+	// Per-function & per-class
+	FunctionMemory         map[string]int64   `json:"function_memory"`           // f -> MB
+	FunctionInputSizeMean  map[string]float64 `json:"function_input_size_mean"`  // f -> bytes (or chosen unit)
+	FunctionOutputSizeMean map[string]float64 `json:"function_output_size_mean"` // f -> bytes (or chosen unit)
+
+	ClassMaxRt           map[string]float64 `json:"class_maxRt"`            // class -> seconds
+	ClassUtility         map[string]float64 `json:"class_utility"`          // class -> scalar
+	ClassDeadlinePenalty map[string]float64 `json:"class_deadline_penalty"` // class -> scalar
+	ClassDropPenalty     map[string]float64 `json:"class_drop_penalty"`     // class -> scalar
+
+}
+
+func initOptCarbonAwareParams() OptCarbonAwareParams {
+	return OptCarbonAwareParams{
+		CloudRegions: make(map[string][]float64),
+		ArrivalRates: make(map[string]map[string]float64),
+		// Per-function
+		FunctionMemory:         make(map[string]int64),
+		FunctionInputSizeMean:  make(map[string]float64),
+		FunctionOutputSizeMean: make(map[string]float64),
+		// Flattened ([region][function] maps)
+		ServTimeCloud:   make(map[string]map[string]float64),
+		InitTimeCloud:   make(map[string]map[string]float64),
+		ColdStartPCloud: make(map[string]map[string]float64),
+		// Local  (per function)
+		InitTimeLocal:   make(map[string]float64),
+		ServTimeLocal:   make(map[string]float64),
+		ColdStartPLocal: make(map[string]float64),
+		// Region-only maps
+		OffloadTimeCloud: make(map[string]float64),
+		BandwidthCloud:   make(map[string]float64),
+		// Edge
+		ServTimeEdge:   make(map[string]float64),
+		ColdStartPEdge: make(map[string]float64),
+		InitTimeEdge:   make(map[string]float64),
+		// Per-class
+		ClassMaxRt:           make(map[string]float64),
+		ClassUtility:         make(map[string]float64),
+		ClassDeadlinePenalty: make(map[string]float64),
+		ClassDropPenalty:     make(map[string]float64),
+	}
+}
+
+type QoSClass struct {
+	Id              int64   `yaml:"id" json:"id"`
+	Name            string  `yaml:"name" json:"name"`
+	MaxRespTime     float64 `yaml:"max_resp_time" json:"max_resp_time"`
+	Utility         float64 `yaml:"utility" json:"utility"`
+	DeadlinePenalty float64 `yaml:"deadline_penalty" json:"deadline_penalty"`
+	DropPenalty     float64 `yaml:"drop_penalty" json:"drop_penalty"`
+}
+
+var qosClasses = make(map[string]QoSClass)
+
+type Co2QosPolicyConfig struct {
+	ArrivalRate       float64 `yaml:"policy.arrival.rate.alpha" json:"policy.arrival.rate.alpha"`
+	UpdateIntervalSec int     `yaml:"policy.update.interval" json:"policy.update.interval"`
+	Budget            float64 `yaml:"budget"`
+	Alpha             float64 `yaml:"policy.alpha"`
+	Beta              float64 `yaml:"policy.beta"`
+	OptHost           string  `yaml:"optimizer.host"`
+	OptPort           int     `yaml:"optimizer.port"`
+	CO2GreenThreshold float64 `yaml:"policy.threshold.greenness"`
+}
+
+func LoadPolicyConfig(path string) (Co2QosPolicyConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Co2QosPolicyConfig{}, fmt.Errorf("read file: %w", err)
+	}
+	var c Co2QosPolicyConfig
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return Co2QosPolicyConfig{}, fmt.Errorf("unmarshal yaml: %w", err)
+	}
+	return c, nil
+}
+
+func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams, error) {
+
+	var LOCAL = registration.SelfRegistration.Key //local
+
+	params := initOptCarbonAwareParams()
+
+	allAreas := regions.GetAllAreas()
+	fmt.Print("allAreas: ", allAreas)
+
+	// Local node params setting
+	params.NodeMemory = (float64)(node.LocalResources.AvailableMemory())
+	_, intensity, _ := node.LocalResources.Co2Footprint.Snapshot()
+	params.NodeCO2Footprint = (float64)(intensity)
+	params.NodeProcessingPowerConsumption = float64(node.LocalResources.ProcessingPowerConsumption)
+	params.NodeTxEnergyConsumption = float64(node.LocalResources.TxEnergyConsumption)
+	params.NodeRxEnergyConsumption = float64(node.LocalResources.RxEnergyConsumption)
+
+	edgeNodes := []string{LOCAL}
+	nearbyServers := registration.GetFullNeighborInfo()
+
+	//latency & energy Edge avgs
+	if len(nearbyServers) > 0 {
+
+		var (
+			sumPower, sumTx, sumRx float64
+			countAll               int
+			sumDist                float64
+			countEdge              int
+		)
+
+		distanceLocalToEdge := make(map[string]float64, len(nearbyServers))
+
+		for key, s := range nearbyServers {
+			if s == nil {
+				continue
+			}
+
+			// For averages
+			sumPower += s.ProcessingPowerConsumption
+			sumTx += s.TxEnergyConsumption
+			sumRx += s.RxEnergyConsumption
+			countAll++
+
+			// Consider as edge candidate only if it has CPU & memory
+			availCPU := s.TotalCPU - s.UsedCPU
+			availMem := s.TotalMemory - s.UsedMemory
+			if availCPU > 0 && availMem > 0 {
+				edgeNodes = append(edgeNodes, key)
+				params.AggregatedEdgeMemory += float64(availMem)
+
+				// LOCAL -> edge distance (seconds)
+				d := registration.VivaldiClient.DistanceTo(&s.Coordinates).Seconds()
+				distanceLocalToEdge[tupleKey(LOCAL, key)] = d
+
+				sumDist += d
+				countEdge++
+			}
+		}
+
+		// Averages across all neighbors
+		if countAll > 0 {
+			//todo: dovrebbe essere calcolo a runtime xke se nuovo nodo si registra in nuova regione non lo so!
+			params.AggregatedEdgePowerConsumption = sumPower / float64(countAll)
+			params.AggregatedEdgeEnergyTx = sumTx / float64(countAll)
+			params.AggregatedEdgeEnergyRx = sumRx / float64(countAll)
+		}
+
+		// Average LOCAL -> edge distance (seconds)
+		if countEdge > 0 {
+			params.OffloadTimeEdge = sumDist / float64(countEdge)
+		} else {
+			params.OffloadTimeEdge = 0 // or leave unchanged, up to you
+		}
+
+		//_ = distanceLocalToEdge
+	}
+
+	loadBalancers := make(map[string]registration.NodeRegistration)
+	if registration.CloudRegions == nil {
+		registration.CloudRegions = make(map[string]regions.AreaInfo)
+	}
+
+	for i := range allAreas {
+		areaName := allAreas[i].AreaName
+
+		lbs, err := registration.GetLBInArea(areaName)
+		if err != nil || len(lbs) == 0 {
+			continue
+		}
+		for _, loadBalancer := range lbs {
+			allAreas[i].LoadBalancerNode = loadBalancer.NodeID
+			loadBalancers[areaName] = loadBalancer
+			registration.CloudRegions[areaName] = allAreas[i]
+			break
+		}
+	}
+
+	params.PossibleDecisions, params.CloudRegions = regions.BuildCloudRegionsAndDecisions(registration.CloudRegions)
+
+	for _, lb := range loadBalancers {
+		latSec, err := registration.GetTcpLatencySec(lb.IPAddress, lb.APIPort)
+		if err != nil {
+			continue
+		}
+		params.OffloadTimeCloud[lb.NodeID.Area] = latSec
+		//todo available cloud memory
+	}
+
+	budget := policy.Config.Budget
+	params.Budget = budget
+
+	//functions
+	functionNames, err := function.GetAll()
+
+	if err != nil {
+		return OptCarbonAwareParams{}, fmt.Errorf("impossible obtain functionNames: %w", err)
+	}
+
+	localWarmStatus := node.WarmStatus()
+	retrievedMetrics := metrics.GetMetrics()
+
+	for _, functionName := range functionNames {
+		realFunc, ok := function.GetFunction(functionName)
+		if !ok {
+			log.Printf("Impossible get the function, skipping...")
+			continue
+		}
+
+		var avgInputSize = 100.0
+
+		if size, ok := retrievedMetrics.AvgInputSize[functionName]; ok && size > 0 {
+			avgInputSize = size
+		}
+
+		var avgOutputSize = 10.0
+		if outputSize, ok := retrievedMetrics.AvgOutputSize[functionName]; ok && outputSize > 0 {
+			avgOutputSize = outputSize
+		}
+
+		params.Functions = append(params.Functions, functionName)
+		params.FunctionMemory[functionName] = realFunc.MemoryMB
+		params.FunctionInputSizeMean[functionName] = avgInputSize
+		params.FunctionOutputSizeMean[functionName] = avgOutputSize
+
+		execTimesEdge := make(map[string]float64) //[node]=float
+		initTimesEdge := make(map[string]float64)
+		coldStartsEdge := make(map[string]float64)
+
+		for _, n := range edgeNodes {
+			nId := node.NodeID{Area: registration.SelfRegistration.Area, Key: n}
+
+			// Execution Times
+			execTime := 0.01 // Default
+			if nodeTimes, ok := retrievedMetrics.AvgEdgeExecutionTime[nId.String()]; ok {
+				if t, ok2 := nodeTimes[functionName]; ok2 {
+					execTime = t
+				}
+			}
+
+			// Init Times
+			avgInit := 0.1 // Default
+			if initTimes, ok := retrievedMetrics.AvgEdgeInitTime[nId.String()]; ok {
+				if t, ok2 := initTimes[functionName]; ok2 {
+					avgInit = t
+				}
+			}
+
+			// Cold starts
+			coldStart := false
+			if n == LOCAL {
+				warmCount, ok := localWarmStatus[functionName]
+				if !ok || warmCount < 1 {
+					coldStart = true
+				}
+			} else {
+				warmCount, ok := nearbyServers[n].AvailableWarmContainers[functionName]
+				if !ok || warmCount < 1 {
+					coldStart = true
+				}
+			}
+
+			if !coldStart {
+				avgInit = 0
+			}
+			//todo: cold start local e edge
+
+			pCold := 1.0 // Default todo: chiedi xke non c'è distinzione per NODO?
+			if prob, ok := retrievedMetrics.EdgeColdStartProbability[functionName]; ok {
+				pCold = prob
+			}
+
+			if n == LOCAL {
+				// Fill LOCAL maps
+				params.ServTimeLocal[functionName] = execTime
+				params.ColdStartPLocal[functionName] = pCold //todo: sbagliato cambiare
+				params.InitTimeLocal[functionName] = pCold * avgInit
+			} else {
+				execTimesEdge[n] = execTime
+				initTimesEdge[n] = pCold * avgInit //todo: sbagliato cambiare
+				coldStartsEdge[n] = pCold
+				//todo: cold start capire questa moltiplicazione
+			}
+		}
+
+		avgEdgeExecTimes := avgMap(execTimesEdge)
+		avgEdgeInitTimes := avgMap(initTimesEdge)
+		avgColdStartsEdge := avgMap(coldStartsEdge)
+		params.ServTimeEdge[functionName] = avgEdgeExecTimes //todo: mettere valori di default if map is empty
+		params.InitTimeEdge[functionName] = avgEdgeInitTimes
+		params.ColdStartPEdge[functionName] = avgColdStartsEdge
+		params.BandwidthEdge = 5000.0
+
+		for areaName := range registration.CloudRegions { // map[string]regions.AreaInfo
+
+			// ensure inner maps exist
+			if _, ok := params.ServTimeCloud[areaName]; !ok {
+				params.ServTimeCloud[areaName] = make(map[string]float64)
+			}
+			if _, ok := params.ColdStartPCloud[areaName]; !ok {
+				params.ColdStartPCloud[areaName] = make(map[string]float64)
+			}
+			if _, ok := params.InitTimeCloud[areaName]; !ok {
+				params.InitTimeCloud[areaName] = make(map[string]float64)
+			}
+
+			// Exec time (default 0.01)
+			exec := 0.01
+			if m, ok := retrievedMetrics.AvgCloudRegionExecutionTime[areaName]; ok {
+				if v, ok := m[functionName]; ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					exec = v
+				}
+			}
+			params.ServTimeCloud[areaName][functionName] = exec
+
+			// Cold-start prob (default 1.0)
+			pCold := 1.0
+			if m, ok := retrievedMetrics.CloudRegionColdStartProbability[areaName]; ok {
+				if v, ok := m[functionName]; ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					pCold = v
+				}
+			}
+			params.ColdStartPCloud[areaName][functionName] = pCold
+
+			// Init time (default 0.1)
+			initAvg := 0.1
+			if m, ok := retrievedMetrics.AvgCloudRegionInitTime[areaName]; ok {
+				if v, ok := m[functionName]; ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					initAvg = v
+				}
+			}
+			params.InitTimeCloud[areaName][functionName] = initAvg * pCold
+			params.BandwidthCloud[areaName] = 10000.0
+		}
+	}
+
+	allClasses := getQosClasses()
+	for _, class := range allClasses {
+		currentClassName := class.Name
+		params.Classes = append(params.Classes, currentClassName)
+		params.ClassMaxRt[currentClassName] = class.MaxRespTime
+		params.ClassUtility[currentClassName] = class.Utility
+		params.ClassDeadlinePenalty[currentClassName] = class.DeadlinePenalty
+		params.ClassDropPenalty[currentClassName] = class.DropPenalty
+	}
+
+	// Arrival Rates from policy struct (flat "f|class" -> λ)
+	policy.arrivalRatesMutex.RLock()
+	flat := make(map[string]float64, len(policy.arrivalRates))
+	for k, v := range policy.arrivalRates {
+		flat[k] = v
+	}
+	policy.arrivalRatesMutex.RUnlock()
+
+	params.ArrivalRates = BuildNestedArrivalRates(flat, allClasses)
+	params.Alpha = policy.AlphaWeight
+	params.Beta = policy.BetaWeight
+	params.CO2GreenThreshold = policy.Config.CO2GreenThreshold
+	params.Budget = policy.Config.Budget
+	//todo: bandwidth(va letta da conf) e costi cloud
+
+	return params, nil
+}
+
+// BuildNestedArrivalRates converts a flat "func|class" -> λ map
+// into a nested func -> class -> λ. If the class part is missing
+// (e.g., "func|" or "func"), it uses the first class in `classes`
+// as the default. Returns an empty map if no classes are provided.
+func BuildNestedArrivalRates(
+	flat map[string]float64,
+	classes []QoSClass,
+) map[string]map[string]float64 {
+
+	out := make(map[string]map[string]float64)
+	if len(classes) == 0 {
+		return out
+	}
+	defaultClass := classes[0].Name
+
+	for k, v := range flat {
+		k = strings.TrimSpace(k)
+
+		var fn, cls string
+		if f, c, ok := strings.Cut(k, "|"); ok {
+			fn = strings.TrimSpace(f)
+			cls = strings.TrimSpace(c)
+			if cls == "" {
+				cls = defaultClass
+			}
+		} else {
+			// No delimiter -> default class
+			fn = k
+			cls = defaultClass
+		}
+
+		if fn == "" || cls == "" {
+			continue
+		}
+		if _, ok := out[fn]; !ok {
+			out[fn] = make(map[string]float64)
+		}
+		out[fn][cls] = v
+	}
+	return out
+}
+
+func getQosClasses() []QoSClass {
+	classes := make([]QoSClass, 0, len(qosClasses))
+	for _, class := range qosClasses {
+		classes = append(classes, class)
+	}
+	return classes
+}
+
+// Qos Class yaml parsing
+func loadQosClasses(filePath string) error {
+
+	// Read yml
+	yamlFile, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("error reading QoS YAML '%s': %w", filePath, err)
+	}
+
+	var configData struct {
+		Classes []QoSClass `yaml:"classes"`
+	}
+
+	// 3. Esegue il parsing (Unmarshal) del contenuto del file nella struct.
+	if err := yaml.Unmarshal(yamlFile, &configData); err != nil {
+		return fmt.Errorf("errore nel parsing del file QoS YAML: %w", err)
+	}
+
+	for _, classDef := range configData.Classes {
+		qosClasses[classDef.Name] = classDef
+	}
+
+	log.Printf("Recovered %d QoS classes with success.", len(qosRegistry))
+	return nil
+}
+
+func (policy *Co2QosAwarePolicy) optimizerLoop() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		log.Println("Polling: Begin strategic update...")
+
+		policy.calculateArrivalRates()
+
+		params, err := policy.prepareOptimizerParams()
+		if err != nil {
+			log.Printf("Error preparing parameters, skipping optimization: %v", err)
+			continue
+		}
+
+		jsonData, err := json.Marshal(params)
+		if err != nil {
+			log.Printf("Polling: marshal error: %v", err)
+			continue
+		}
+
+		url := fmt.Sprintf("http://%s:%d/", policy.Config.OptHost, policy.Config.OptPort)
+		resp, err := policy.httpClient.Post(url, "application/json", bytes.NewBuffer(jsonData))
+		if err != nil {
+			log.Printf("Polling: optimizer call error: %v", err)
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("Polling: response status: %s", resp.Status)
+			continue
+		}
+
+		var out OptResp
+		if err := json.Unmarshal(body, &out); err != nil {
+			log.Printf("Polling: decode error: %v", err)
+			continue
+		}
+
+		// Build per-region cloud probs
+		pr := buildProbsV2FromFlat(out.Probs)
+
+		// Choose a cache key. If this is per-(function|class), use that key instead of "GLOBAL".
+		const cacheKey = "GLOBAL"
+		policy.probabilityCache.Store(cacheKey, pr)
+
+		// NOTE: out.DecisionFCProbabilityVar is available for future use.
+		log.Printf("Polling: Cache of probability update done")
+	}
+}
+
+// Parse flat keys into ProbsV2.
+// Supports keys: prob_exec, prob_offload_edge, prob_drop, prob_offload_cloud_<region>
+func buildProbsV2FromFlat(flat map[string]float64) ProbsV2 {
+	p := ProbsV2{PCloud: make(map[string]float64)}
+	for k, v := range flat {
+		switch k {
+		case "prob_exec", "prob_local", "prob_local_exec":
+			p.PLocal = v
+		case "prob_offload_edge":
+			p.PEdge = v
+		case "prob_drop":
+			p.PDrop = v
+		default:
+			const pref = "prob_offload_cloud_"
+			if strings.HasPrefix(k, pref) {
+				region := strings.TrimPrefix(k, pref)
+				if region != "" {
+					p.PCloud[region] = v
+				}
+			}
+		}
+	}
+	// Ensure we have an entry for every configured region (0 default if absent)
+	for region := range registration.CloudRegions {
+		if _, ok := p.PCloud[region]; !ok {
+			p.PCloud[region] = 0.0
+		}
+	}
+	return p
+}
+
+func (policy *Co2QosAwarePolicy) calculateArrivalRates() {
+
+	policy.arrivalCountsMutex.Lock()
+	countsSnapshot := policy.arrivalCounts
+	policy.arrivalCounts = make(map[string]int64) // Reset for the next interval
+	policy.arrivalCountsMutex.Unlock()
+
+	elapsedSeconds := policy.updateInterval.Seconds()
+	if elapsedSeconds == 0 {
+		return // Evita divisione per zero
+	}
+
+	policy.arrivalRatesMutex.Lock()
+	defer policy.arrivalRatesMutex.Unlock()
+
+	for key, count := range countsSnapshot {
+		measuredRate := float64(count) / elapsedSeconds
+		oldRate := policy.arrivalRates[key] // Default: 0.0
+
+		smoothedRate := policy.arrivalAlpha*measuredRate + (1.0-policy.arrivalAlpha)*oldRate
+
+		policy.arrivalRates[key] = smoothedRate
+	}
+	fmt.Printf("Arrival rates update: %v", policy.arrivalRates)
+}
+
+func avgMap(m map[string]float64) float64 {
+	if len(m) == 0 {
+		return 0
+	}
+	sum := 0.0
+	for _, v := range m {
+		sum += v
+	}
+	return sum / float64(len(m))
+}

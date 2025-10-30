@@ -676,7 +676,7 @@ func (wflow *Workflow) Equals(comparer types.Comparable) bool {
 
 func (wflow *Workflow) String() string {
 	return fmt.Sprintf(`Workflow{
-		Name: %s,
+		AreaName: %s,
 		Start: %s,
 		Tasks: %s,
 		End:   %s,
@@ -690,7 +690,7 @@ func (wflow *Workflow) MarshalJSON() ([]byte, error) {
 	data := make(map[string]interface{})
 
 	// Add the field to the map
-	data["Name"] = wflow.Name
+	data["AreaName"] = wflow.Name
 	data["Start"] = wflow.Start
 	data["End"] = wflow.End
 	tasks := make(map[TaskId]interface{})
@@ -730,12 +730,12 @@ func (wflow *Workflow) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("missing 'End' field in JSON")
 	}
 
-	if rawName, ok := tempMap["Name"]; ok {
+	if rawName, ok := tempMap["AreaName"]; ok {
 		if err := json.Unmarshal(rawName, &wflow.Name); err != nil {
 			return err
 		}
 	} else {
-		return fmt.Errorf("missing 'Name' field in JSON")
+		return fmt.Errorf("missing 'AreaName' field in JSON")
 	}
 
 	// Cycle on each map entry and decode the type

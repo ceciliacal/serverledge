@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/serverledge-faas/serverledge/internal/client"
@@ -37,6 +40,13 @@ func Offload(r *scheduledRequest, serverUrl string) error {
 		return err
 	}
 	sendingTime := time.Now() // used to compute latency later on
+
+	//Manage AWS Lambda offload
+	if strings.HasPrefix(serverUrl, utils.ServerUrlLambda) {
+		log.Printf("Offloading to AWS Lambda the function")
+		return offloadToLambda(r, invocationBody, sendingTime)
+	}
+
 	resp, err := offloadingClient.Post(serverUrl+"/invoke/"+r.Fun.Name, "application/json",
 		bytes.NewBuffer(invocationBody))
 
@@ -92,9 +102,40 @@ func OffloadAsync(r *function.Request, serverUrl string) error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Remote returned: %v", resp.StatusCode)
+		return fmt.Errorf("remote returned: %v", resp.StatusCode)
 	}
 
 	// there is nothing to wait for
+	return nil
+}
+
+func offloadToLambda(r *scheduledRequest, invocationBody []byte, sendingTime time.Time) error {
+	provider, err := lambda.GetProvider()
+	if err != nil {
+		log.Printf("Impossible obtain provider: %v", err)
+		completions <- &completionNotification{r: r, failed: true}
+		return err
+	}
+
+	report, err := provider.InvokeProviderFunction(r.Request, invocationBody)
+	if err != nil {
+		log.Printf("Lambda invokation failed: %v", err)
+		completions <- &completionNotification{r: r, failed: true}
+		return err
+	}
+
+	now := time.Now()
+	originalArrivalTime := r.Arrival
+	r.ExecutionReport = &report
+	r.ResponseTime = now.Sub(originalArrivalTime).Seconds()
+	r.OffloadLatency = now.Sub(sendingTime).Seconds() -
+		report.Duration - report.InitTime
+	r.offloaded = true
+	r.onExternalProvider = true
+
+	completions <- &completionNotification{
+		r: r,
+	}
+
 	return nil
 }

@@ -1,11 +1,15 @@
 package scheduling
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/serverledge-faas/serverledge/internal/registration"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/serverledge-faas/serverledge/internal/externalprovider"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
+	"github.com/serverledge-faas/serverledge/internal/registration"
 
 	"github.com/serverledge-faas/serverledge/internal/container"
 	"github.com/serverledge-faas/serverledge/internal/function"
@@ -53,23 +57,58 @@ func Run(p Policy) {
 		case r = <-requests: // receive request
 			go p.OnArrival(r)
 		case c = <-completions:
-			node.HandleCompletion(c.cont, c.r.Fun)
+			if c.cont != nil {
+				node.HandleCompletion(c.cont, c.r.Fun)
+			}
 			p.OnCompletion(c.r.Fun, c.r.ExecutionReport)
 
 			if metrics.Enabled && !c.failed && c.r.ExecutionReport != nil {
-				metrics.AddCompletedInvocation(c.r.Fun.Name, !c.r.ExecutionReport.IsWarmStart)
-				if !c.r.offloaded {
-					metrics.AddFunctionDurationValue(c.r.Fun.Name, c.r.ExecutionReport.Duration)
-					if !c.r.ExecutionReport.IsWarmStart {
-						metrics.AddFunctionInitTimeValue(c.r.Fun.Name, c.r.ExecutionReport.InitTime)
+
+				if c.r.onExternalProvider {
+					provider, err := externalprovider.NewOffloader("aws")
+					if err != nil {
+						log.Printf("Errore nel recupero del provider: %v", err)
+					} else {
+						extPrvRegion, err := provider.GetRegion()
+						if err != nil {
+							log.Printf("Errore nel recupero della regione del provider: %v", err)
+						} else {
+							nodeArea := utils.ExternalProvider + extPrvRegion
+							metrics.AddRemoteCompletedInvocation(c.r.Fun.Name, nodeArea, !c.r.ExecutionReport.IsWarmStart)
+							metrics.AddRemoteFunctionDurationValue(c.r.Fun.Name, nodeArea, c.r.ExecutionReport.Duration)
+							if !c.r.ExecutionReport.IsWarmStart {
+								metrics.AddRemoteFunctionInitTimeValue(c.r.Fun.Name, nodeArea, c.r.ExecutionReport.InitTime)
+							}
+						}
+					}
+				} else { //todo: mettere metriche anche x nodeArea
+					metrics.AddCompletedInvocation(c.r.Fun.Name, !c.r.ExecutionReport.IsWarmStart)
+					metrics.AddCompletedInvocationByArea(c.r.Fun.Name, node.LocalNode.Area, !c.r.ExecutionReport.IsWarmStart)
+
+					if !c.r.offloaded {
+						metrics.AddFunctionDurationValue(c.r.Fun.Name, c.r.ExecutionReport.Duration)
+						metrics.AddFunctionDurationByArea(c.r.Fun.Name, node.LocalNode.Area, c.r.ExecutionReport.Duration)
+
+						if !c.r.ExecutionReport.IsWarmStart {
+							metrics.AddFunctionInitTimeValue(c.r.Fun.Name, c.r.ExecutionReport.InitTime)
+							metrics.AddFunctionInitTimeByArea(c.r.Fun.Name, node.LocalNode.Area, c.r.ExecutionReport.InitTime)
+
+						}
 					}
 				}
 				outputSize := len(c.r.ExecutionReport.Result)
-				metrics.AddFunctionOutputSizeValue(r.Fun.Name, float64(outputSize))
+				metrics.AddFunctionOutputSizeValue(c.r.Fun.Name, float64(outputSize))
+
+				jsonParams, err := json.Marshal(c.r.Params)
+				if err != nil {
+					log.Printf("Impossibile serializzare i parametri per la funzione '%s': %v", c.r.Fun.Name, err)
+				} else {
+					inputSizeBytes := len(jsonParams)
+					metrics.AddFunctionInputSizeValue(c.r.Fun.Name, float64(inputSizeBytes))
+				}
 			}
 		}
 	}
-
 }
 
 // SubmitRequest submits a newly arrived request for scheduling and execution
@@ -168,4 +207,10 @@ func handleCloudOffload(r *scheduledRequest) {
 	} else {
 		handleOffload(r, offloadingTarget.APIUrl())
 	}
+}
+
+// Func for handling requests to AWS Lambda
+func handleLambdaOffload(r *scheduledRequest) {
+	cloudAddress := "aws:externalprovider"
+	handleOffload(r, cloudAddress)
 }

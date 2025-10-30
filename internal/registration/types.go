@@ -2,6 +2,7 @@ package registration
 
 import (
 	"errors"
+
 	"github.com/hexablock/vivaldi"
 	"github.com/serverledge-faas/serverledge/internal/node"
 )
@@ -18,11 +19,14 @@ type NodeRegistration struct {
 }
 
 type StatusInformation struct {
-	AvailableWarmContainers map[string]int // <k, v> = <function name, warm container number>
-	TotalMemory             int64
-	UsedMemory              int64
-	TotalCPU                float64
-	UsedCPU                 float64
-	Coordinates             vivaldi.Coordinate
-	LoadAvg                 []float64
+	AvailableWarmContainers    map[string]int // <k, v> = <function name, warm container number>
+	TotalMemory                int64
+	UsedMemory                 int64
+	TotalCPU                   float64
+	UsedCPU                    float64
+	Coordinates                vivaldi.Coordinate
+	LoadAvg                    []float64
+	ProcessingPowerConsumption float64
+	TxEnergyConsumption        float64
+	RxEnergyConsumption        float64
 }

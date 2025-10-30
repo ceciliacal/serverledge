@@ -140,6 +140,8 @@ func CreateOrUpdateFunction(c echo.Context) error {
 		return err
 	}
 
+	var isUpdate bool
+
 	if c.Path() != "/update" {
 		_, ok := function.GetFunction(f.Name) // TODO: we would need a system-wide lock here...
 		if ok {
@@ -147,9 +149,11 @@ func CreateOrUpdateFunction(c echo.Context) error {
 			return c.String(http.StatusConflict, "")
 		}
 
+		isUpdate = false
 		log.Printf("New request: creation of %s\n", f.Name)
 	} else {
 		log.Printf("New request: creation/update of %s\n", f.Name)
+		isUpdate = true
 	}
 
 	// Check that the selected runtime exists
@@ -182,6 +186,12 @@ func CreateOrUpdateFunction(c echo.Context) error {
 		log.Printf("Failed creation: %v\n", err)
 		return c.JSON(http.StatusServiceUnavailable, "")
 	}
+
+	if isUpdate {
+		// terminate any warm container after the update
+		node.ShutdownWarmContainersFor(&f)
+	}
+
 	response := struct{ Created string }{f.Name}
 	return c.JSON(http.StatusOK, response)
 }
@@ -228,13 +238,16 @@ func GetServerStatus(c echo.Context) error {
 
 	// TODO: use a different type
 	response := registration.StatusInformation{
-		AvailableWarmContainers: node.WarmStatus(),
-		TotalMemory:             node.LocalResources.TotalMemory(),
-		UsedMemory:              node.LocalResources.UsedMemory(),
-		TotalCPU:                node.LocalResources.TotalCPUs(),
-		UsedCPU:                 node.LocalResources.UsedCPUs(),
-		Coordinates:             *registration.VivaldiClient.GetCoordinate(),
-		LoadAvg:                 loadAvgValues,
+		AvailableWarmContainers:    node.WarmStatus(),
+		TotalMemory:                node.LocalResources.TotalMemory(),
+		UsedMemory:                 node.LocalResources.UsedMemory(),
+		TotalCPU:                   node.LocalResources.TotalCPUs(),
+		UsedCPU:                    node.LocalResources.UsedCPUs(),
+		Coordinates:                *registration.VivaldiClient.GetCoordinate(),
+		LoadAvg:                    loadAvgValues,
+		ProcessingPowerConsumption: node.LocalResources.ProcessingPower(),
+		TxEnergyConsumption:        node.LocalResources.TxEnergyPerByte(),
+		RxEnergyConsumption:        node.LocalResources.RxEnergyPerByte(),
 	}
 
 	return c.JSON(http.StatusOK, response)

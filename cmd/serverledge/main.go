@@ -14,6 +14,7 @@ import (
 	"github.com/serverledge-faas/serverledge/internal/config"
 	"github.com/serverledge-faas/serverledge/internal/metrics"
 	"github.com/serverledge-faas/serverledge/internal/node"
+	"github.com/serverledge-faas/serverledge/internal/regions"
 	"github.com/serverledge-faas/serverledge/internal/registration"
 	"github.com/serverledge-faas/serverledge/internal/scheduling"
 	"github.com/serverledge-faas/serverledge/internal/telemetry"
@@ -32,9 +33,26 @@ func main() {
 
 	// register to etcd, this way server is visible to the others under a given local area
 	myArea := config.GetString(config.REGISTRY_AREA, "ROME")
+
+	// === carbon aware config setup ===
+	regionConfigFile := config.GetString(config.REGIONS_FILE_PATH, "")
+	currentArea, pollInterval, err := regions.ReadRegionConfiguration(regionConfigFile, myArea)
+
+	//todo: qui dovrei pure capire come definire caratteristiche LB (tipo un flag nella definizione del conf? e spostare tx rx ecc lì)
+	if err != nil {
+		log.Printf("Skipping CO2 monitoring: %v\n", err)
+	} else {
+		co2TracesFilename := currentArea.CO2TracesFile
+		if err := startCO2Monitoring(co2TracesFilename, pollInterval, nil); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("CO2 poller started")
+		//todo: add co2 intensity curr value to Vivaldi monitoring
+	}
+
 	node.LocalNode = node.NewIdentifier(myArea)
 
-	err := registration.RegisterNode()
+	err = registration.RegisterNode()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -79,4 +97,34 @@ func main() {
 
 	api.StartAPIServer(e)
 
+}
+
+func startCO2Monitoring(
+	path string,
+	period time.Duration,
+	loc *time.Location,
+) error {
+	poller := &node.CO2Poller{}
+
+	//todo: eventualmente leggere header timestamp & co2Intenisity da config (ora hardcoded in startCO2Monitoring)
+
+	timestampHeader := "Datetime (UTC)"
+	intensityValueHeader := "Carbon Intensity gCO₂eq/kWh (direct)"
+
+	if err := poller.Start(path, timestampHeader, intensityValueHeader, period, loc); err != nil {
+		return err
+	}
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			t, intensity, count := poller.CarbonFootprint().Snapshot()
+			now := time.Now().UTC().Format(time.RFC3339)
+			log.Printf("CO2 snapshot now=%s t=%s intensity=%.3f count=%d",
+				now, t.Format(time.RFC3339), intensity, count)
+		}
+	}()
+
+	return nil
 }

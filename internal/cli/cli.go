@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider"
 	"io"
 	"net/http"
 	"os"
@@ -110,6 +111,7 @@ var update bool
 var maxConcurrency int16
 var prewarmCount int64
 var forcePull bool
+var externalProvider string
 
 func Init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
@@ -137,16 +139,18 @@ func Init() {
 	createCmd.Flags().StringVarP(&customImage, "custom_image", "", "", "custom container image (only if runtime == 'custom')")
 	createCmd.Flags().StringSliceVarP(&inputs, "input", "i", nil, "Input parameter: <name>:<type>")
 	createCmd.Flags().StringSliceVarP(&outputs, "output", "o", nil, "Output specification: <name>:<type>")
-
+	//For AWS Lambda function registration
+	createCmd.Flags().StringVarP(&externalProvider, "external_provider", "", "", "Deploy also to an external provider (aws, gcp, azure etc...)")
 	rootCmd.AddCommand(prewarmCmd)
 	prewarmCmd.Flags().StringVarP(&funcName, "function", "f", "", "name of the function")
 	prewarmCmd.Flags().Int64VarP(&prewarmCount, "count", "c", 1, "num of instances to launch")
 	prewarmCmd.Flags().BoolVarP(&forcePull, "force_pull", "", false, "Force pull of container image")
-
 	rootCmd.AddCommand(deleteCmd)
 	deleteCmd.Flags().StringVarP(&funcName, "function", "f", "", "name of the function")
 
 	rootCmd.AddCommand(listCmd)
+	//For ExternalProvider listing
+	listCmd.Flags().StringVarP(&externalProvider, "external_provider", "f", "", "List also the functions on the external provider (specify aws, gcp, azure etc...)")
 
 	rootCmd.AddCommand(statusCmd)
 
@@ -211,6 +215,10 @@ func invoke(cmd *cobra.Command, args []string) {
 	}
 	if len(paramsFile) > 0 {
 		jsonFile, err := os.Open(paramsFile)
+		if err != nil {
+			fmt.Printf("Could not open parameters file '%s'\n", paramsFile)
+			os.Exit(1)
+		}
 
 		defer func(jsonFile *os.File) {
 			err := jsonFile.Close()
@@ -355,16 +363,39 @@ func create(cmd *cobra.Command, args []string) {
 	}
 
 	request := function.Function{
-		Name:            funcName,
-		Handler:         handler,
-		Runtime:         runtime,
-		MaxConcurrency:  maxConcurrency,
-		MemoryMB:        memory,
-		CPUDemand:       cpuDemand,
-		TarFunctionCode: encoded,
-		CustomImage:     customImage,
-		Signature:       sig,
+		Name:             funcName,
+		Handler:          handler,
+		Runtime:          runtime,
+		MaxConcurrency:   maxConcurrency,
+		MemoryMB:         memory,
+		CPUDemand:        cpuDemand,
+		TarFunctionCode:  encoded,
+		CustomImage:      customImage,
+		Signature:        sig,
+		ExternalProvider: externalProvider,
 	}
+
+	if externalProvider != "" {
+		if runtime != "python310" {
+			fmt.Println("Runtime non ancora implementato: usa runtime python310")
+		} else {
+			provider, err := externalprovider.NewOffloader(externalProvider)
+			if err != nil {
+				fmt.Printf("Failed to initialize provider: %v\n", err)
+				os.Exit(1)
+			}
+
+			arnCode, err := provider.CreateFunction(cmd.Context(), &request)
+
+			if err == nil {
+				request.ArnCode = arnCode
+			} else {
+				log.Printf("CreateFunction fallita: %v", err)
+				os.Exit(2)
+			}
+		}
+	}
+
 	requestBody, err := json.Marshal(request)
 	if err != nil {
 		showHelpAndExit(cmd)
@@ -439,6 +470,23 @@ func deleteFunction(cmd *cobra.Command, args []string) {
 	}
 
 	request := function.Function{Name: funcName}
+
+	if externalDeployment, arnCode, ok := function.GetArnFromName(funcName); ok && externalDeployment != "" {
+		request.ArnCode = arnCode
+
+		provider, err := externalprovider.NewOffloader(externalDeployment)
+		if err != nil {
+			fmt.Printf("Failed to initialize provider %q: %v\n", externalDeployment, err)
+			os.Exit(1)
+		}
+
+		if err := provider.DeleteProviderFunction(cmd.Context(), &request); err != nil {
+			fmt.Printf("External provider deletion failed: %v\n", err)
+			os.Exit(2)
+		}
+		fmt.Println("External provider:", externalDeployment, "deletion OK.")
+	}
+
 	requestBody, err := json.Marshal(request)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -462,6 +510,28 @@ func listFunctions(cmd *cobra.Command, args []string) {
 		os.Exit(2)
 	}
 	utils.PrintJsonResponse(resp.Body)
+
+	if externalProvider != "" {
+		provider, err := externalprovider.NewOffloader(externalProvider)
+
+		if err != nil {
+			fmt.Printf("Failed to initialize provider: %v\n", err)
+			os.Exit(1)
+		}
+
+		log.Printf("Listing function on provider: %s", externalProvider)
+
+		functionList, err := provider.ListFunctions(cmd.Context())
+
+		if err != nil {
+			fmt.Printf("Creation of function failed: %v\n", err)
+			os.Exit(-1)
+		}
+
+		for _, name := range functionList {
+			fmt.Println(name)
+		}
+	}
 }
 
 func getStatus(cmd *cobra.Command, args []string) {
@@ -516,6 +586,10 @@ func invokeWorkflow(cmd *cobra.Command, args []string) {
 	}
 	if len(paramsFile) > 0 {
 		jsonFile, err := os.Open(paramsFile)
+		if err != nil {
+			fmt.Printf("Could not open parameters file '%s'\n", paramsFile)
+			os.Exit(1)
+		}
 		defer jsonFile.Close()
 		byteValue, _ := io.ReadAll(jsonFile)
 		err = json.Unmarshal(byteValue, &paramsMap)

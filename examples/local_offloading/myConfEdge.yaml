@@ -1,0 +1,9 @@
+scheduler.policy: default
+cloud.server.url: "http://127.0.0.1:1328"
+registry:
+  remote:
+    area: "region_a"
+  udp:
+    port: 9879
+metrics:
+  enabled: true

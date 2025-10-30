@@ -3,12 +3,13 @@ package node
 import (
 	"errors"
 	"fmt"
-	"github.com/lithammer/shortuuid"
-	"github.com/serverledge-faas/serverledge/internal/config"
 	"runtime"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/lithammer/shortuuid"
+	"github.com/serverledge-faas/serverledge/internal/config"
 )
 
 var OutOfResourcesErr = errors.New("not enough resources for function execution")
@@ -31,12 +32,17 @@ func NewIdentifier(area string) NodeID {
 
 type Resources struct {
 	sync.RWMutex
-	totalMemory     int64
-	totalCPUs       float64
-	busyPoolUsedMem int64   // amount of memory used by functions currently running
-	warmPoolUsedMem int64   // amount of memory used by warm containers
-	usedCPUs        float64 // number of CPU used by functions currently running
-	containerPools  map[string]*ContainerPool
+	totalMemory                int64
+	totalCPUs                  float64
+	busyPoolUsedMem            int64   // amount of memory used by functions currently running
+	warmPoolUsedMem            int64   // amount of memory used by warm containers
+	usedCPUs                   float64 // number of CPU used by functions currently running
+	containerPools             map[string]*ContainerPool
+	Co2Footprint               CarbonFootprint
+	ProcessingPowerConsumption float64
+	TxEnergyConsumption        float64
+	RxEnergyConsumption        float64
+	GCo2Emissions              float64
 }
 
 func (n *Resources) Init() {
@@ -44,10 +50,16 @@ func (n *Resources) Init() {
 	n.totalCPUs = config.GetFloat(config.POOL_CPUS, float64(availableCores))
 	n.totalMemory = int64(config.GetInt(config.POOL_MEMORY_MB, 1024))
 	n.containerPools = make(map[string]*ContainerPool)
+
+	//todo: energy configs (fix default values)-> co2footprint potrebbe non servire come attributo
+	n.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 100.0)
+	n.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 100.0)
+	n.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 100.0)
+	n.GCo2Emissions = 0.0
 }
 
 func (n *Resources) String() string {
-	return fmt.Sprintf("[CPUs: %f/%f - Mem: %d(%d warm)/%d]", n.usedCPUs, n.totalCPUs, n.busyPoolUsedMem, n.warmPoolUsedMem, n.totalMemory)
+	return fmt.Sprintf("[CPUs: %f/%f - Mem: %d(+%d warm)/%d]", n.usedCPUs, n.totalCPUs, n.busyPoolUsedMem, n.warmPoolUsedMem, n.totalMemory)
 }
 
 func (n *Resources) FreeMemory() int64 {
@@ -77,6 +89,18 @@ func (n *Resources) TotalCPUs() float64 {
 
 func (n *Resources) TotalMemory() int64 {
 	return n.totalMemory
+}
+
+func (n *Resources) ProcessingPower() float64 {
+	return n.ProcessingPowerConsumption
+}
+
+func (n *Resources) TxEnergyPerByte() float64 {
+	return n.TxEnergyConsumption
+}
+
+func (n *Resources) RxEnergyPerByte() float64 {
+	return n.RxEnergyConsumption
 }
 
 var LocalResources Resources

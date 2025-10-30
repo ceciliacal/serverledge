@@ -1,0 +1,8 @@
+scheduler.policy: co2qosaware
+cloud.server.url: "http://127.0.0.1:1320"
+registry.area: "MILAN"
+registry:
+  remote:
+    area: "MILAN"
+  udp:
+    port: 9873

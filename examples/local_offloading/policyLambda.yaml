@@ -1,0 +1,45 @@
+# Host e porta dell'ottimizzatore ILP
+function.offloading.policy.optimizer.host: "localhost"
+function.offloading.policy.optimizer.port: 8080
+
+# Costo per area geografica (edge/local)
+function.offloading.policy.region.cost:
+  rome: 0.000 #Solo per Edge
+
+# Costo compute in cloud (per GB*sec)
+function.offloading.compute.region.cost.gb.sec:
+  eu-central-1: 0.000016667
+  us-east-1: 0.000013333
+
+# Costo per richiesta in cloud
+function.offloading.compute.region.request.cost:
+  eu-central-1: 0.0000002
+  us-east-1: 0.0000002
+
+# Banda Edge ↔ DataStore (Mbps)
+function.offloading.policy.node2datastore.bandwidth: 100.0
+
+function:
+  offloading:
+    policy:
+      update:
+        interval: 5
+
+
+function.offloading.policy.lambda.ping.interval: 60
+function.offloading.qos.classes.path: "examples/qos.yaml"
+
+# Banda Lambda ↔ DataStore (se non specificata = 10× edge)
+function.offloading.policy.lambda.to.data.store.bandwidth: 1000.0 #Forse poco per Lambda?
+registry.area: "rome"
+metrics.enabled: true
+scheduler.policy: policyscheduling
+external.provider.enabled: true
+metrics:
+  retriever:
+    interval: 2
+function.offloading.budget: 0.00001
+
+policy.arrival.rate.alpha: 0.3
+
+policy.function.name: "lambda-ping-function"

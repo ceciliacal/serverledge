@@ -60,6 +60,21 @@ func newContainerPool() *ContainerPool {
 	return fp
 }
 
+func CanExecuteLocally(cpuDemand float64, memDemand int64) bool {
+	LocalResources.Lock()
+	defer LocalResources.Unlock()
+
+	if LocalResources.AvailableCPUs() < cpuDemand {
+		return false
+	}
+
+	if LocalResources.AvailableMemory() < memDemand {
+		return false
+	}
+
+	return true
+}
+
 func acquireNewMemory(mem int64, forWarmPool bool) bool {
 	if LocalResources.AvailableMemory() < mem {
 		return false
@@ -81,7 +96,7 @@ func acquireNewMemory(mem int64, forWarmPool bool) bool {
 	return true
 }
 
-// acquireWarmContainer acquires a warm container for a given function (if any).
+// AcquireWarmContainer acquires a warm container for a given function (if any).
 // A warm container is in running/paused state and has already been initialized
 // with the function code.
 // The function returns an error if either:
@@ -136,7 +151,6 @@ func AcquireContainer(f *function.Function, onlyIfWarm bool) (*container.Contain
 	if onlyIfWarm {
 		return nil, false, NoWarmFoundErr
 	}
-
 	// Cold start required
 	if !AcquireResourcesForNewContainer(f, false) {
 		return nil, false, OutOfResourcesErr
@@ -269,17 +283,16 @@ func dismissContainer(requiredMemoryMB int64) (bool, error) {
 			// every container into the funPool has the same memory (same function)
 			//so it is not important which one you destroy
 			elem := funPool.idle.Front()
-			contID := elem.Value.(*container.Container).ID
 			// container in the same pool need same memory
-			memory, _ := container.GetMemoryMB(contID)
-			for ok := true; ok; ok = elem != nil {
-				containerToDismiss = append(containerToDismiss,
-					itemToDismiss{contID: contID, pool: funPool, elem: elem, memory: memory})
+			memory, _ := container.GetMemoryMB(elem.Value.(*container.Container).ID)
+
+			for elem != nil {
+				contID := elem.Value.(*container.Container).ID
+				containerToDismiss = append(containerToDismiss, itemToDismiss{contID: contID, pool: funPool, elem: elem, memory: memory})
 				cleanedMB += memory
 				if cleanedMB >= requiredMemoryMB {
 					goto cleanup
 				}
-				//go on to the next one
 				elem = elem.Next()
 			}
 		}
@@ -317,7 +330,6 @@ func DeleteExpiredContainer() {
 			if now > warm.ExpirationTime {
 				temp := elem
 				elem = elem.Next()
-				//log.Printf("cleaner: Removing container %s\n", warm.contID)
 				pool.idle.Remove(temp) // remove the expired element
 
 				memory, _ := container.GetMemoryMB(warm.ID)
@@ -326,13 +338,11 @@ func DeleteExpiredContainer() {
 				if err != nil {
 					log.Printf("Error while destroying container %s: %s\n", warm.ID, err)
 				}
-				// log.Printf("Released resources. Now: %v\n", &LocalResources)
 			} else {
 				elem = elem.Next()
 			}
 		}
 	}
-
 }
 
 // ShutdownWarmContainersFor destroys warm containers of a given function
