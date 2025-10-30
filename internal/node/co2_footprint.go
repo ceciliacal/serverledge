@@ -5,17 +5,12 @@ import (
 	"encoding/csv"
 	"errors"
 	"io"
-	"log"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/spf13/viper"
 )
-
-var CO2Viper *viper.Viper
 
 type CarbonFootprint struct {
 	mu           sync.RWMutex
@@ -191,29 +186,4 @@ func parseTime(s string, loc *time.Location) (time.Time, error) {
 		}
 	}
 	return time.Time{}, first
-}
-
-func ReadCO2Configuration(filename string) (string, string, string, time.Duration, error) {
-	if filename == "" {
-		return "", "", "", 0, errors.New("no CO2 config file specified")
-	}
-
-	CO2Viper = viper.New()
-	CO2Viper.SetConfigFile(filename)
-	CO2Viper.SetConfigType("json")
-
-	if err := CO2Viper.ReadInConfig(); err != nil {
-		log.Printf("Could not read CO2 config file: %v", err)
-		return "", "", "", 0, err
-	}
-	log.Println("CO2 config loaded from", filename)
-
-	//reading CO2 TRACES
-	csvPath := CO2Viper.GetString("csv_path")
-	timestampCol := CO2Viper.GetString("timestamp_column")
-	intensityCol := CO2Viper.GetString("intensity_column")
-	pollInterval := time.Duration(CO2Viper.GetInt("poll_interval_sec")) * time.Second
-
-	return csvPath, timestampCol, intensityCol, pollInterval, nil
-
 }

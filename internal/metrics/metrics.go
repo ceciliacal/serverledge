@@ -62,19 +62,22 @@ var (
 )
 
 type RetrievedMetrics struct {
-	ExtPrvColdStartProbability   map[string]float64
-	AvgExtPrvRemoteExecutionTime map[string]float64
-	AvgExtPrvRemoteInitTime      map[string]float64
-	RemoteColdStartProbability   map[string]float64
-	AvgRemoteExecutionTime       map[string]float64
-	AvgEdgeExecutionTime         map[string]map[string]float64
-	AvgRemoteInitTime            map[string]float64
-	AvgEdgeInitTime              map[string]map[string]float64
-	EdgeColdStartProbability     map[string]float64
-	AvgInputSize                 map[string]float64
-	AvgOutputSize                map[string]float64
-	BranchFrequency              map[string]map[string]float64
-	ArrivalRates                 map[string]float64 // Key: "func|QosClass"
+	ExtPrvColdStartProbability      map[string]float64
+	AvgExtPrvRemoteExecutionTime    map[string]float64
+	AvgExtPrvRemoteInitTime         map[string]float64
+	RemoteColdStartProbability      map[string]float64
+	AvgRemoteExecutionTime          map[string]float64
+	AvgEdgeExecutionTime            map[string]map[string]float64
+	AvgRemoteInitTime               map[string]float64
+	AvgEdgeInitTime                 map[string]map[string]float64
+	EdgeColdStartProbability        map[string]float64
+	AvgInputSize                    map[string]float64
+	AvgOutputSize                   map[string]float64
+	BranchFrequency                 map[string]map[string]float64
+	ArrivalRates                    map[string]float64 // Key: "func|QosClass"
+	CloudRegionColdStartProbability map[string]map[string]float64
+	AvgCloudRegionExecutionTime     map[string]map[string]float64
+	AvgCloudRegionInitTime          map[string]map[string]float64
 }
 
 func (r RetrievedMetrics) String() string {
@@ -103,6 +106,12 @@ func (r RetrievedMetrics) String() string {
 	s += fmt.Sprintf("  %v\n\n", r.AvgOutputSize)
 	s += "BRANCH FREQ:\n"
 	s += fmt.Sprintf("  %v\n\n", r.BranchFrequency)
+	s += "CLOUD REGION REMOTE COLD START PROB:\n"
+	s += fmt.Sprintf("  %v\n\n", r.CloudRegionColdStartProbability)
+	s += "CLOUD REGION EXEC TIMES:\n"
+	s += fmt.Sprintf("  %v\n\n", r.AvgCloudRegionExecutionTime)
+	s += "CLOUD REGION INIT TIMES:\n"
+	s += fmt.Sprintf(" %v\n\n", r.AvgCloudRegionInitTime)
 
 	return s
 }
@@ -182,5 +191,49 @@ func AddRemoteCompletedInvocation(funcName string, nodeLabel string, coldStart b
 	metricCompletions.With(prometheus.Labels{"function": funcName, "area": nodeLabel}).Inc()
 	if coldStart {
 		metricColdStarts.With(prometheus.Labels{"function": funcName, "area": nodeLabel}).Inc()
+	}
+}
+
+// synthesize a node label that encodes the area (matches your retriever's regex \(AREA\).* )
+func aggregateNodeForArea(area string) string {
+	return fmt.Sprintf("(%s)aggregate", area)
+}
+
+// Record execution duration by area (without changing existing vectors)
+func AddFunctionDurationByArea(funcName, areaName string, duration float64) {
+	nodeLabel := aggregateNodeForArea(areaName)
+	log.Printf("[METRICS] FunctionDurationByArea area=%s node=%s function=%s duration=%.6f",
+		areaName, nodeLabel, funcName, duration)
+	metricExecutionTime.With(prometheus.Labels{
+		"function": funcName,
+		"node":     nodeLabel,
+	}).Observe(duration)
+}
+
+// Record init time by area (cold-start duration), same idea
+func AddFunctionInitTimeByArea(funcName, areaName string, initTime float64) {
+	nodeLabel := aggregateNodeForArea(areaName)
+	log.Printf("[METRICS] FunctionInitTimeByArea area=%s node=%s function=%s initTime=%.6f",
+		areaName, nodeLabel, funcName, initTime)
+	metricInitializationTime.With(prometheus.Labels{
+		"function": funcName,
+		"node":     nodeLabel,
+	}).Observe(initTime)
+}
+
+// Record completed invocation by area (and optional cold start)
+// Counters already have {"area","function"}, so this is direct.
+func AddCompletedInvocationByArea(funcName, areaName string, coldStart bool) {
+	log.Printf("[METRICS] CompletedInvocationByArea area=%s function=%s coldStart=%t",
+		areaName, funcName, coldStart)
+	metricCompletions.With(prometheus.Labels{
+		"function": funcName,
+		"area":     areaName,
+	}).Inc()
+	if coldStart {
+		metricColdStarts.With(prometheus.Labels{
+			"function": funcName,
+			"area":     areaName,
+		}).Inc()
 	}
 }

@@ -3,11 +3,12 @@ module github.com/serverledge-faas/serverledge
 go 1.24
 
 require (
-	github.com/buger/jsonparser v1.1.1
 	github.com/aws/aws-sdk-go-v2 v1.36.6
 	github.com/aws/aws-sdk-go-v2/config v1.29.18
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.72.1
+	github.com/buger/jsonparser v1.1.1
 	github.com/docker/docker v24.0.5+incompatible
+	github.com/ghodss/yaml v1.0.0
 	github.com/hexablock/vivaldi v0.0.0-20180727225019-07adad3f2b5f
 	github.com/labstack/echo/v4 v4.6.1
 	github.com/labstack/gommon v0.3.0
@@ -26,6 +27,7 @@ require (
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
 	golang.org/x/net v0.15.0
 	google.golang.org/grpc v1.57.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

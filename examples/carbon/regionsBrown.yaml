@@ -1,0 +1,29 @@
+regions:
+- name: cloud_region_a
+  co2.traces.file: ./co2_traces/PL_2023_hourly.csv
+  cost: 0.0
+  consumption.processing.power: 800.0
+  consumption.energy.tx: 5120.0
+  consumption.energy.rx: 3072.0
+- name: cloud_region_b
+  co2.traces.file: ./co2_traces/FR_2023_hourly.csv
+  cost: 0.0
+  consumption.processing.power: 800.0
+  consumption.energy.tx: 5120.0
+  consumption.energy.rx: 3072.0
+- name: region_a
+  co2.traces.file: ./co2_traces/PL_2023_hourly.csv
+  cost: 0.0
+  consumption.processing.power: 800.0
+  consumption.energy.tx: 5120.0
+  consumption.energy.rx: 3072.0
+- name: region_b
+  co2.traces.file: ./co2_traces/FR_2023_hourly.csv
+  cost: 0.0
+  consumption.processing.power: 800.0
+  consumption.energy.tx: 5120.0
+  consumption.energy.rx: 3072.0
+poll.interval.sec: 30
+header.timestamp: "Datetime (UTC)"
+header.intensity: "Carbon Intensity gCO₂eq/kWh (direct)"
+

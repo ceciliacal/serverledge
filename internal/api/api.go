@@ -238,13 +238,16 @@ func GetServerStatus(c echo.Context) error {
 
 	// TODO: use a different type
 	response := registration.StatusInformation{
-		AvailableWarmContainers: node.WarmStatus(),
-		TotalMemory:             node.LocalResources.TotalMemory(),
-		UsedMemory:              node.LocalResources.UsedMemory(),
-		TotalCPU:                node.LocalResources.TotalCPUs(),
-		UsedCPU:                 node.LocalResources.UsedCPUs(),
-		Coordinates:             *registration.VivaldiClient.GetCoordinate(),
-		LoadAvg:                 loadAvgValues,
+		AvailableWarmContainers:    node.WarmStatus(),
+		TotalMemory:                node.LocalResources.TotalMemory(),
+		UsedMemory:                 node.LocalResources.UsedMemory(),
+		TotalCPU:                   node.LocalResources.TotalCPUs(),
+		UsedCPU:                    node.LocalResources.UsedCPUs(),
+		Coordinates:                *registration.VivaldiClient.GetCoordinate(),
+		LoadAvg:                    loadAvgValues,
+		ProcessingPowerConsumption: node.LocalResources.ProcessingPower(),
+		TxEnergyConsumption:        node.LocalResources.TxEnergyPerByte(),
+		RxEnergyConsumption:        node.LocalResources.RxEnergyPerByte(),
 	}
 
 	return c.JSON(http.StatusOK, response)

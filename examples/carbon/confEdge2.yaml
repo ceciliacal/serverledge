@@ -1,0 +1,7 @@
+scheduler.policy: co2qosaware
+cloud.server.url: "http://127.0.0.1:1328"
+registry:
+  area: "region_a"
+api.port: 1320
+
+

@@ -148,6 +148,16 @@ const POLICY_FUNCTION_NAME = "policy.function.name"
 const FUNCTION_OFFLOADING_POLICY_LAMBDA_PING_INTERVAL = "function.offloading.policy.lambda.ping.interval"
 
 // power consuming features
-const PROCESSING_POWER_CONSUMPTION = "node.consumption.power"
-const TX_ENERGY_CONSUMPTION = "node.consumption.energy.tx"
-const RX_ENERGY_CONSUMPTION = "node.consumption.energy.rx"
+const PROCESSING_POWER_CONSUMPTION = "consumption.processing.power"
+const TX_ENERGY_CONSUMPTION = "consumption.energy.tx"
+const RX_ENERGY_CONSUMPTION = "consumption.energy.rx"
+
+const REGIONS_FILE_PATH = "regions.file.path"
+
+const OPTIMIZER_HOST = "optimizer.host"
+const OPTIMIZER_PORT = "optimizer.port"
+const ALPHA = "policy.alpha"
+const BETA = "policy.beta"
+const BUDGET = "budget"
+const CO2_QOS_POLICY_GENERAL_CONFIG_PATH = "policy.general.config.path"
+const POLICY_UPDATE_INTERVAL = "policy.update.interval"

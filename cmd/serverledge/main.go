@@ -14,6 +14,7 @@ import (
 	"github.com/serverledge-faas/serverledge/internal/config"
 	"github.com/serverledge-faas/serverledge/internal/metrics"
 	"github.com/serverledge-faas/serverledge/internal/node"
+	"github.com/serverledge-faas/serverledge/internal/regions"
 	"github.com/serverledge-faas/serverledge/internal/registration"
 	"github.com/serverledge-faas/serverledge/internal/scheduling"
 	"github.com/serverledge-faas/serverledge/internal/telemetry"
@@ -27,30 +28,28 @@ func main() {
 	}
 	config.ReadConfiguration(configFileName)
 
-	// === carbon aware config setup ===
-	configCo2TraceFileName := ""
-	if len(os.Args) > 2 {
-		fmt.Println("ciao")
-
-		configCo2TraceFileName = os.Args[2]
-	}
-
-	co2TracesFilename, co2Timestamp, co2Intensity, pollInterval, err := node.ReadCO2Configuration(configCo2TraceFileName)
-	if err != nil {
-		log.Printf("Skipping CO2 monitoring: %v\n", err)
-	} else {
-		//todo: setup config energy info in node
-		if err := startCO2Monitoring(co2TracesFilename, co2Timestamp, co2Intensity, pollInterval, nil); err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println("CO2 poller started")
-	}
-
 	//setting up cache parameters
 	api.CacheSetup()
 
 	// register to etcd, this way server is visible to the others under a given local area
 	myArea := config.GetString(config.REGISTRY_AREA, "ROME")
+
+	// === carbon aware config setup ===
+	regionConfigFile := config.GetString(config.REGIONS_FILE_PATH, "")
+	currentArea, pollInterval, err := regions.ReadRegionConfiguration(regionConfigFile, myArea)
+
+	//todo: qui dovrei pure capire come definire caratteristiche LB (tipo un flag nella definizione del conf? e spostare tx rx ecc lì)
+	if err != nil {
+		log.Printf("Skipping CO2 monitoring: %v\n", err)
+	} else {
+		co2TracesFilename := currentArea.CO2TracesFile
+		if err := startCO2Monitoring(co2TracesFilename, pollInterval, nil); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("CO2 poller started")
+		//todo: add co2 intensity curr value to Vivaldi monitoring
+	}
+
 	node.LocalNode = node.NewIdentifier(myArea)
 
 	err = registration.RegisterNode()
@@ -101,13 +100,18 @@ func main() {
 }
 
 func startCO2Monitoring(
-	path, tsHeader, valHeader string,
+	path string,
 	period time.Duration,
 	loc *time.Location,
 ) error {
 	poller := &node.CO2Poller{}
 
-	if err := poller.Start(path, tsHeader, valHeader, period, loc); err != nil {
+	//todo: eventualmente leggere header timestamp & co2Intenisity da config (ora hardcoded in startCO2Monitoring)
+
+	timestampHeader := "Datetime (UTC)"
+	intensityValueHeader := "Carbon Intensity gCO₂eq/kWh (direct)"
+
+	if err := poller.Start(path, timestampHeader, intensityValueHeader, period, loc); err != nil {
 		return err
 	}
 

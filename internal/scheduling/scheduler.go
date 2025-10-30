@@ -3,12 +3,13 @@ package scheduling
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/serverledge-faas/serverledge/internal/externalprovider"
-	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
-	"github.com/serverledge-faas/serverledge/internal/registration"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/serverledge-faas/serverledge/internal/externalprovider"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
+	"github.com/serverledge-faas/serverledge/internal/registration"
 
 	"github.com/serverledge-faas/serverledge/internal/container"
 	"github.com/serverledge-faas/serverledge/internal/function"
@@ -30,12 +31,6 @@ func Run(p Policy) {
 
 	node.LocalResources.Init()
 	log.Printf("Current resources: %v\n", &node.LocalResources)
-
-    //todo: energy configs (fix default values)-> co2footprint potrebbe non servire come attributo
-	//node.Resources.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 100.0)
-	//node.Resources.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 100.0)
-	//node.Resources.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 100.0)
-	//node.Resources.GCo2Emissions = 0.0
 
 	container.InitDockerContainerFactory()
 
@@ -86,13 +81,18 @@ func Run(p Policy) {
 							}
 						}
 					}
-				} else {
+				} else { //todo: mettere metriche anche x nodeArea
 					metrics.AddCompletedInvocation(c.r.Fun.Name, !c.r.ExecutionReport.IsWarmStart)
+					metrics.AddCompletedInvocationByArea(c.r.Fun.Name, node.LocalNode.Area, !c.r.ExecutionReport.IsWarmStart)
 
 					if !c.r.offloaded {
 						metrics.AddFunctionDurationValue(c.r.Fun.Name, c.r.ExecutionReport.Duration)
+						metrics.AddFunctionDurationByArea(c.r.Fun.Name, node.LocalNode.Area, c.r.ExecutionReport.Duration)
+
 						if !c.r.ExecutionReport.IsWarmStart {
 							metrics.AddFunctionInitTimeValue(c.r.Fun.Name, c.r.ExecutionReport.InitTime)
+							metrics.AddFunctionInitTimeByArea(c.r.Fun.Name, node.LocalNode.Area, c.r.ExecutionReport.InitTime)
+
 						}
 					}
 				}

@@ -1,0 +1,5 @@
+api.port: 1320
+scheduler.policy: localonly
+registry.area: "MILAN"
+registry.udp.port: 9872
+
