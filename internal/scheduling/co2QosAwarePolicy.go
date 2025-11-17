@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/serverledge-faas/serverledge/internal/config"
+	"github.com/serverledge-faas/serverledge/internal/emissions"
 	"github.com/serverledge-faas/serverledge/internal/function"
 	"github.com/serverledge-faas/serverledge/internal/node"
 	"github.com/serverledge-faas/serverledge/internal/regions"
@@ -66,7 +67,7 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 	allAreas, _ := registration.ListAreas()
 	fmt.Print("=== regions: ", allAreas)
 
-	qosName, ok := getQoSClassNameByID(r.Class)
+	qosName, ok := getClassNameByID(r.Class)
 	if !ok {
 		log.Printf("QoS class name not registered, plese add it, error: %v", r.Class)
 	}
@@ -81,6 +82,65 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 		dropRequest(r)
 	}
 	log.Printf("decision: ", decision)
+
+	var actionChoice string
+	if decision.action == 0 {
+		actionChoice = "Drop"
+	} else if decision.action == 1 {
+		actionChoice = "Execute locally"
+	} else if decision.action == 2 {
+		actionChoice = "Execute remotely on " + decision.remoteHost
+	}
+
+	log.Printf("Action choiced by evaluator: %s\n", actionChoice)
+
+	if decision.action == 0 {
+		dropRequest(r)
+	} else if decision.action == 1 { //Local execution
+		containerID, warm, err := node.AcquireContainer(r.Fun, false)
+		if err == nil {
+			execLocally(r, containerID, warm)
+		} else {
+			log.Printf("Error in choosing container: %v", err)
+		}
+	} else if decision.action == 2 && decision.remoteHost == edgeUrl { //Offload on Edge node
+		// We want to choose the node with more memory available
+		nearbyServers := registration.GetFullNeighborInfo()
+		edgeNodes := make([]string, 0)
+		nodeMemory := make(map[string]float64)
+		for k, v := range nearbyServers {
+			availableCPU := v.TotalCPU - v.UsedCPU
+			availableMemory := v.TotalMemory - v.UsedMemory
+			if availableCPU > 0 && availableMemory > r.Fun.MemoryMB {
+				edgeNodes = append(edgeNodes, k)
+				nodeMemory[k] = float64(availableMemory)
+			}
+		}
+		selectedEdge, err := selectEdgePeer(edgeNodes, nodeMemory)
+		if err != nil || selectedEdge == "" { //Here we can send to Cloud or Drop, for now we drop
+			log.Printf("No edge peer available, dropping request...")
+			dropRequest(r)
+			return
+		}
+		chosenPeerInfo := registration.GetPeerFromKey(selectedEdge)
+		targetURL := chosenPeerInfo.APIUrl()
+		log.Printf("In OnArrival - offloading to EDGE - target node: %s\n", targetURL)
+
+		handleOffload(r, targetURL)
+
+	} else if decision.action == 2 && decision.remoteHost != edgeUrl { //cloud region
+		if decision.remoteHost == "" {
+			log.Printf("No LB configured for cloud region in ", decision.regionName, ", dropping request...")
+			dropRequest(r)
+			return
+		}
+		log.Printf("In OnArrival - offloading to CLOUD REGION: %s - target node: %s\n", decision.regionName, decision.remoteHost)
+
+		handleOffload(r, decision.remoteHost)
+	}
+
+	log.Printf("Execution of function: %s  with action: %s done\n.", r.Fun.Name, actionChoice)
+
 }
 
 func (policy *Co2QosAwarePolicy) OnCompletion(fun *function.Function, executionReport *function.ExecutionReport) {
@@ -96,13 +156,15 @@ func (policy *Co2QosAwarePolicy) evaluate(r *scheduledRequest, cacheKey string) 
 	}
 
 	val, ok := policy.probabilityCache.Load(cacheKey)
+	log.Printf("In EVALUATE - loaded probs (val): %s\n", val)
 
-	var probs ProbsV2
+	var probs MultiRegionProbs
 	if ok {
-		probs = val.(ProbsV2)
+		probs = val.(MultiRegionProbs)
+		log.Printf("probs[%s]: PLocal=%.4f PEdge=%.4f PDrop=%.4f PCloud=%v",
+			cacheKey, probs.PLocal, probs.PEdge, probs.PDrop, probs.PCloud)
 	} else {
-		// Defaults: split evenly; spread cloud share over regions
-		probs = ProbsV2{
+		probs = MultiRegionProbs{
 			PLocal: 0.25,
 			PEdge:  0.25,
 			PDrop:  0.25,
@@ -121,11 +183,10 @@ func (policy *Co2QosAwarePolicy) evaluate(r *scheduledRequest, cacheKey string) 
 	if !node.CanExecuteLocally(r.Fun.CPUDemand, r.Fun.MemoryMB) {
 		probs.PLocal = 0
 	}
-
 	return randomizedChoiceV2(probs)
 }
-func randomizedChoiceV2(probs ProbsV2) (schedDecision, error) {
-	// Deterministic iteration over regions
+
+func randomizedChoiceV2(probs MultiRegionProbs) (schedDecision, error) {
 	regionNames := make([]string, 0, len(registration.CloudRegions))
 	for region := range registration.CloudRegions {
 		regionNames = append(regionNames, region)
@@ -141,38 +202,67 @@ func randomizedChoiceV2(probs ProbsV2) (schedDecision, error) {
 		return schedDecision{action: DROP}, nil
 	}
 
-	// Sample
-	rv := rand.Float64()
-	cum := probs.PLocal / sum
-	if rv < cum {
+	// Local exec
+	randomValue := rand.Float64()
+	cumulative := probs.PLocal / sum
+	if randomValue < cumulative {
 		return schedDecision{action: EXEC_LOCAL}, nil
 	}
 
 	// Cloud regions
 	for _, region := range regionNames {
 		p := probs.PCloud[region] / sum
-		cum += p
-		if rv < cum {
-			remote := regionToRemoteHost(region)
-			return schedDecision{action: EXEC_REMOTE, remoteHost: remote}, nil
+		cumulative += p
+		if randomValue < cumulative {
+			remoteLBUrl := regionToRemoteHost(region)
+			log.Printf("In randomizedChoice - cloud offloading to %s\n", region)
+
+			return schedDecision{action: EXEC_REMOTE, remoteHost: remoteLBUrl, regionName: region}, nil
 		}
 	}
 
 	// Edge
-	cum += probs.PEdge / sum
-	if rv < cum {
+	cumulative += probs.PEdge / sum
+	if randomValue < cumulative {
 		return schedDecision{action: EXEC_REMOTE, remoteHost: edgeUrl}, nil
 	}
 
 	return schedDecision{action: DROP}, nil
 }
 
-// Resolve a region/area to the remote target string your scheduler expects.
+// return LB url of the input region
 func regionToRemoteHost(region string) string {
-	//todo (remote host è LB)
 	if ai, ok := registration.CloudRegions[region]; ok && ai.LoadBalancerNode.Key != "" {
-		return ai.LoadBalancerNode.String() // "(AREA)key"
+		log.Printf("ai.LoadBalancerNode.Key ", ai.LoadBalancerNode.Key)
+		log.Printf("registration.GetPeerFromKey(ai.LoadBalancerNode.Key)", registration.GetPeerFromKey(ai.LoadBalancerNode.Key))
+
+		lb, err := registration.GetLBByKey(region, ai.LoadBalancerNode.Key)
+		if err != nil {
+			log.Printf("LB lookup failed for area=%s key=%s: %v", region, ai.LoadBalancerNode.Key, err)
+			return ""
+		}
+		log.Printf("===region to remote host: ", lb.APIUrl())
+
+		return lb.APIUrl()
 	}
-	// Fallback: return the region and resolve downstream if needed
-	return region
+	return ""
+}
+
+func prepareEnergyInputs(r *scheduledRequest) emissions.Inputs {
+	return emissions.Inputs{
+		DurationSec:             r.ExecutionReport.Duration,
+		FunctionMemory:          float64(r.Fun.MemoryMB), //TODO: fixa unita misura
+		CurrentNodePowerCons:    node.LocalResources.ProcessingPower(),
+		CurrentNodeCO2Intensity: node.LocalResources.Co2Footprint.Intensity(),
+		InputSizeMean:           100.0, //todo: da fixare
+		OutputSizeMean:          10.0,
+
+		InitialNodeTxEnergy:   r.initialNodeTxEnergy,
+		InitialNodeRxEnergy:   r.initialNodeRxEnergy,
+		AggrInitialNodeMemory: r.initialNodeMemory,
+
+		// executor (this node)
+		LocalNodeRxEnergy: node.LocalResources.RxEnergyPerByte(),
+		LocalNodeTxEnergy: node.LocalResources.TxEnergyPerByte(),
+	}
 }

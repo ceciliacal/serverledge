@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -12,118 +13,109 @@ import (
 	"time"
 )
 
+// ---- Data that lives on the node ----
+
 type CarbonFootprint struct {
-	mu           sync.RWMutex
-	co2Datetime  time.Time
-	co2Intensity float64
-	count        int // row index we've consumed
+	mu  sync.RWMutex
+	t   time.Time
+	val float64
+	idx int // next row index to consume
 }
 
-// Snapshot returns a copy of current state.
-func (c *CarbonFootprint) Snapshot() (t time.Time, intensity float64, count int) {
+func (c *CarbonFootprint) Intensity() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.co2Datetime, c.co2Intensity, c.count
+	return c.val
 }
 
-type CO2Poller struct {
-	rows      []co2Row
-	cf        *CarbonFootprint
-	cancel    context.CancelFunc
-	runningMu sync.Mutex
+func (c *CarbonFootprint) set(t time.Time, v float64, nextIdx int) {
+	c.mu.Lock()
+	c.t = t
+	c.val = v
+	c.idx = nextIdx
+	c.mu.Unlock()
 }
+
+// ---- CSV-based updater ----
 
 type co2Row struct {
-	t         time.Time
-	intensity float64
+	t   time.Time
+	val float64
 }
 
-func (p *CO2Poller) Start(csvPath, timeCol, intensityCol string, period time.Duration, loc *time.Location) error {
-	p.runningMu.Lock()
-	defer p.runningMu.Unlock()
-	if p.cancel != nil {
-		return errors.New("poller already running")
-	}
-
+// StartCO2FromCSV loads a time series and periodically updates LocalResources.Co2Footprint.
+// It sets the first value immediately (no initial zeros). It returns a stop() you should call on shutdown.
+func StartCO2FromCSV(ctx context.Context, csvPath, timeCol, intensityCol string, period time.Duration, loc *time.Location) (stop func(), err error) {
 	rows, err := loadRows(csvPath, timeCol, intensityCol, loc)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(rows) == 0 {
-		return errors.New("no data rows in CSV")
-	}
-	p.rows = rows
-	if p.cf == nil {
-		p.cf = &CarbonFootprint{}
+		return nil, errors.New("CO2: CSV has no data rows")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
+	// Write first value immediately
+	LocalResources.Co2Footprint.set(rows[0].t, rows[0].val, 1)
 
+	// Ticker loop
 	ticker := time.NewTicker(period)
+	done := make(chan struct{})
+
 	go func() {
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
+				close(done)
 				return
 			case <-ticker.C:
-				p.step()
+				LocalResources.Co2Footprint.mu.Lock()
+				i := LocalResources.Co2Footprint.idx
+				if i >= len(rows) {
+					// stop when CSV is exhausted
+					LocalResources.Co2Footprint.mu.Unlock()
+					close(done)
+					return
+				}
+				r := rows[i]
+				LocalResources.Co2Footprint.t = r.t
+				LocalResources.Co2Footprint.val = r.val
+				LocalResources.Co2Footprint.idx = i + 1
+				LocalResources.Co2Footprint.mu.Unlock()
 			}
 		}
 	}()
 
-	p.step()
-	return nil
-}
-
-func (p *CO2Poller) step() {
-	p.cf.mu.Lock()
-	defer p.cf.mu.Unlock()
-
-	if p.cf.count >= len(p.rows) {
-		// stop automatically when CSV is exhausted
-		if p.cancel != nil {
-			p.cancel()
-			p.cancel = nil
+	stop = func() {
+		// cancel via context; wait for goroutine to exit
+		if cancel := ctx.Value(co2CancelKey{}); cancel != nil {
+			if f, ok := cancel.(context.CancelFunc); ok {
+				f()
+			}
 		}
-		return
+		<-done
 	}
-	r := p.rows[p.cf.count]
-	p.cf.co2Datetime = r.t
-	p.cf.co2Intensity = r.intensity
-	p.cf.count++
+	return stop, nil
 }
 
-func (p *CO2Poller) Stop() {
-	p.runningMu.Lock()
-	defer p.runningMu.Unlock()
-	if p.cancel != nil {
-		p.cancel()
-		p.cancel = nil
-	}
-}
-
-func (p *CO2Poller) CarbonFootprint() *CarbonFootprint {
-	return p.cf
-}
+type co2CancelKey struct{}
 
 func loadRows(csvPath, timeCol, intensityCol string, loc *time.Location) ([]co2Row, error) {
 	f, err := os.Open(csvPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("CO2: open CSV: %w", err)
 	}
 	defer f.Close()
 
 	r := csv.NewReader(f)
 	header, err := r.Read()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("CO2: read header: %w", err)
 	}
 	ti := findIdx(header, timeCol)
 	ii := findIdx(header, intensityCol)
 	if ti < 0 || ii < 0 {
-		return nil, errors.New("timestamp or intensity column not found")
+		return nil, fmt.Errorf("CO2: columns not found: time=%q intensity=%q", timeCol, intensityCol)
 	}
 
 	var out []co2Row
@@ -133,20 +125,20 @@ func loadRows(csvPath, timeCol, intensityCol string, loc *time.Location) ([]co2R
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("CO2: read row: %w", err)
 		}
 		ts := strings.TrimSpace(rec[ti])
-		ints := strings.TrimSpace(rec[ii])
+		is := strings.TrimSpace(rec[ii])
 
 		tm, err := parseTime(ts, loc)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("CO2: parse time %q: %w", ts, err)
 		}
-		val, err := strconv.ParseFloat(ints, 64)
+		val, err := strconv.ParseFloat(is, 64)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("CO2: parse intensity %q: %w", is, err)
 		}
-		out = append(out, co2Row{t: tm, intensity: val})
+		out = append(out, co2Row{t: tm, val: val})
 	}
 	return out, nil
 }
@@ -161,7 +153,6 @@ func findIdx(header []string, want string) int {
 	return -1
 }
 
-// adjust/extend layouts to match your CSVs (FR_2023_hourly.csv, PL_2023_hourly.csv)
 func parseTime(s string, loc *time.Location) (time.Time, error) {
 	layouts := []string{
 		time.RFC3339,
@@ -186,4 +177,10 @@ func parseTime(s string, loc *time.Location) (time.Time, error) {
 		}
 	}
 	return time.Time{}, first
+}
+
+func (c *CarbonFootprint) Snapshot() (t time.Time, intensity float64, idx int) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.t, c.val, c.idx
 }

@@ -1,6 +1,6 @@
 budget: 1.0
-policy.alpha: 0.5
-policy.beta: 0.5
+policy.alpha: 0.0
+policy.beta: 1.0
 policy.update.interval: 600
 policy.threshold.greenness: 150.0
 policy.arrival.rate.alpha: 0.3

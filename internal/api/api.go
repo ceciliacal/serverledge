@@ -47,6 +47,7 @@ func GetFunctions(c echo.Context) error {
 	return c.JSON(http.StatusOK, list)
 }
 
+// todo: aggiungere "c" per classe?
 // InvokeFunction handles a function invocation request.
 func InvokeFunction(c echo.Context) error {
 	funcName := c.Param("fun")
@@ -99,6 +100,29 @@ func InvokeFunction(c echo.Context) error {
 	} else {
 		return c.JSON(http.StatusOK, function.Response{Success: true, ExecutionReport: *executionReport})
 	}
+}
+
+func GetWarmContainerExistence(c echo.Context) error {
+	funName := c.Param("fun")
+	_, ok := function.GetFunction(funName)
+	if !ok {
+		log.Printf("Dropping request for unknown fun '%s'\n", funName)
+		return c.String(http.StatusNotFound, "Function unknown")
+	}
+
+	ws := node.WarmStatus() // map[string]int or nil
+	count := 0
+	if ws != nil {
+		if n, ok := ws[funName]; ok {
+			count = n
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"function": funName,
+		"warm":     count > 0,
+		"count":    count,
+	})
 }
 
 // PollAsyncResult checks for the result of an asynchronous invocation.

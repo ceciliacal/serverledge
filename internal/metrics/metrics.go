@@ -20,13 +20,18 @@ var ScrapingHandler http.Handler = nil
 var durationBuckets = []float64{0.002, 0.005, 0.010, 0.02, 0.03, 0.05, 0.1, 0.15, 0.3, 0.6, 1.0}
 
 const (
-	COMPLETIONS         = "completed_count"
-	COLD_STARTS         = "cold_starts_count"
-	EXECUTION_TIME      = "execution_time"
-	INITIALIZATION_TIME = "init_time"
-	INPUT_SIZE          = "input_size"
-	OUTPUT_SIZE         = "output_size"
-	BRANCH_COUNT        = "branch_count"
+	COMPLETIONS              = "completed_count"
+	COLD_STARTS              = "cold_starts_count"
+	EXECUTION_TIME           = "execution_time"
+	INITIALIZATION_TIME      = "init_time"
+	INPUT_SIZE               = "input_size"
+	OUTPUT_SIZE              = "output_size"
+	BRANCH_COUNT             = "branch_count"
+	EXECUTION_TIME_AREA      = "execution_time_by_area"
+	INITIALIZATION_TIME_AREA = "init_time_by_area"
+	CO2_EMITTED_GRAMS_TOTAL  = "co2_emitted_grams_total"
+	COMPLETIONS_NODE         = "completed_node_count"
+	COLD_STARTS_NODE         = "cold_starts_node_count"
 )
 
 var (
@@ -59,6 +64,32 @@ var (
 		Name: BRANCH_COUNT,
 		Help: "Number of executions of a task among multiple alternatives",
 	}, []string{"task", "next_task"})
+	metricExecutionTimeByArea = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    EXECUTION_TIME_AREA,
+		Help:    "Function duration (area-labelled)",
+		Buckets: durationBuckets,
+	}, []string{"area", "node", "function"})
+
+	metricInitializationTimeByArea = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    INITIALIZATION_TIME_AREA,
+		Help:    "Function initialization time (area-labelled)",
+		Buckets: durationBuckets,
+	}, []string{"area", "node", "function"})
+	metricCO2EmittedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: CO2_EMITTED_GRAMS_TOTAL,
+		Help: "Total grams of CO2 emitted by function execution",
+	}, []string{"area", "node", "function"})
+
+	//for PCold Start for each node
+	metricCompletionsNode = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: COMPLETIONS_NODE,
+		Help: "Number of completed function invocations per node",
+	}, []string{"node", "function"})
+
+	metricColdStartsNode = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: COLD_STARTS_NODE,
+		Help: "Number of cold starts per function and node",
+	}, []string{"node", "function"})
 )
 
 type RetrievedMetrics struct {
@@ -78,6 +109,8 @@ type RetrievedMetrics struct {
 	CloudRegionColdStartProbability map[string]map[string]float64
 	AvgCloudRegionExecutionTime     map[string]map[string]float64
 	AvgCloudRegionInitTime          map[string]map[string]float64
+	EdgeColdStartProbabilityByNode  map[string]map[string]float64 // node -> function -> pCold
+
 }
 
 func (r RetrievedMetrics) String() string {
@@ -133,6 +166,13 @@ func Init() {
 	registry.MustRegister(metricOutputSize)
 	registry.MustRegister(metricBranchCount)
 
+	registry.MustRegister(metricExecutionTimeByArea)
+	registry.MustRegister(metricInitializationTimeByArea)
+	registry.MustRegister(metricCO2EmittedTotal)
+
+	registry.MustRegister(metricCompletionsNode)
+	registry.MustRegister(metricColdStartsNode)
+
 	ScrapingHandler = promhttp.HandlerFor(registry, promhttp.HandlerOpts{
 		EnableOpenMetrics: true})
 
@@ -145,6 +185,13 @@ func AddCompletedInvocation(funcName string, coldStart bool) {
 	metricCompletions.With(prometheus.Labels{"function": funcName, "area": node.LocalNode.Area}).Inc()
 	if coldStart {
 		metricColdStarts.With(prometheus.Labels{"function": funcName, "area": node.LocalNode.Area}).Inc()
+	}
+
+	// +++ NEW: per-node counters +++
+	n := node.LocalNode.String()
+	metricCompletionsNode.With(prometheus.Labels{"function": funcName, "node": n}).Inc()
+	if coldStart {
+		metricColdStartsNode.With(prometheus.Labels{"function": funcName, "node": n}).Inc()
 	}
 }
 func AddFunctionDurationValue(funcName string, duration float64) {
@@ -194,46 +241,33 @@ func AddRemoteCompletedInvocation(funcName string, nodeLabel string, coldStart b
 	}
 }
 
-// synthesize a node label that encodes the area (matches your retriever's regex \(AREA\).* )
-func aggregateNodeForArea(area string) string {
-	return fmt.Sprintf("(%s)aggregate", area)
-}
-
-// Record execution duration by area (without changing existing vectors)
-func AddFunctionDurationByArea(funcName, areaName string, duration float64) {
-	nodeLabel := aggregateNodeForArea(areaName)
-	log.Printf("[METRICS] FunctionDurationByArea area=%s node=%s function=%s duration=%.6f",
-		areaName, nodeLabel, funcName, duration)
-	metricExecutionTime.With(prometheus.Labels{
+// BY AREA
+func AddFunctionDurationValueArea(funcName string, duration float64) {
+	log.Printf("[METRICS] FunctionDurationArea node=%s area=%s function=%s duration=%.6f",
+		node.LocalNode.String(), node.LocalNode.Area, funcName, duration)
+	metricExecutionTimeByArea.With(prometheus.Labels{
 		"function": funcName,
-		"node":     nodeLabel,
+		"node":     node.LocalNode.String(),
+		"area":     node.LocalNode.Area,
 	}).Observe(duration)
 }
 
-// Record init time by area (cold-start duration), same idea
-func AddFunctionInitTimeByArea(funcName, areaName string, initTime float64) {
-	nodeLabel := aggregateNodeForArea(areaName)
-	log.Printf("[METRICS] FunctionInitTimeByArea area=%s node=%s function=%s initTime=%.6f",
-		areaName, nodeLabel, funcName, initTime)
-	metricInitializationTime.With(prometheus.Labels{
+func AddFunctionInitTimeValueArea(funcName string, initTime float64) {
+	log.Printf("[METRICS] FunctionInitTimeArea node=%s area=%s function=%s initTime=%.6f",
+		node.LocalNode.String(), node.LocalNode.Area, funcName, initTime)
+	metricInitializationTimeByArea.With(prometheus.Labels{
 		"function": funcName,
-		"node":     nodeLabel,
+		"node":     node.LocalNode.String(),
+		"area":     node.LocalNode.Area,
 	}).Observe(initTime)
 }
 
-// Record completed invocation by area (and optional cold start)
-// Counters already have {"area","function"}, so this is direct.
-func AddCompletedInvocationByArea(funcName, areaName string, coldStart bool) {
-	log.Printf("[METRICS] CompletedInvocationByArea area=%s function=%s coldStart=%t",
-		areaName, funcName, coldStart)
-	metricCompletions.With(prometheus.Labels{
+func AddFunctionCO2Emitted(funcName string, grams float64) {
+	metricCO2EmittedTotal.With(prometheus.Labels{
 		"function": funcName,
-		"area":     areaName,
-	}).Inc()
-	if coldStart {
-		metricColdStarts.With(prometheus.Labels{
-			"function": funcName,
-			"area":     areaName,
-		}).Inc()
-	}
+		"node":     node.LocalNode.String(),
+		"area":     node.LocalNode.Area,
+	}).Add(grams)
 }
+
+//self.g_co2_emissions = {}   #key: <function, schedulerDecision>, value: g CO2

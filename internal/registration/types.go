@@ -29,4 +29,5 @@ type StatusInformation struct {
 	ProcessingPowerConsumption float64
 	TxEnergyConsumption        float64
 	RxEnergyConsumption        float64
+	CO2Intensity               float64
 }

@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/serverledge-faas/serverledge/internal/emissions"
 	"github.com/serverledge-faas/serverledge/internal/externalprovider"
 	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"github.com/serverledge-faas/serverledge/internal/registration"
@@ -55,6 +58,7 @@ func Run(p Policy) {
 	for {
 		select {
 		case r = <-requests: // receive request
+			prepareInitialNodeEnergyProfile(r) //for gCO2 metrics computation
 			go p.OnArrival(r)
 		case c = <-completions:
 			if c.cont != nil {
@@ -81,17 +85,20 @@ func Run(p Policy) {
 							}
 						}
 					}
-				} else { //todo: mettere metriche anche x nodeArea
+				} else {
 					metrics.AddCompletedInvocation(c.r.Fun.Name, !c.r.ExecutionReport.IsWarmStart)
-					metrics.AddCompletedInvocationByArea(c.r.Fun.Name, node.LocalNode.Area, !c.r.ExecutionReport.IsWarmStart)
+
+					in := prepareEnergyInputs(c.r)
+					co2g := emissions.Compute(in)
+					metrics.AddFunctionCO2Emitted(c.r.Fun.Name, co2g)
 
 					if !c.r.offloaded {
 						metrics.AddFunctionDurationValue(c.r.Fun.Name, c.r.ExecutionReport.Duration)
-						metrics.AddFunctionDurationByArea(c.r.Fun.Name, node.LocalNode.Area, c.r.ExecutionReport.Duration)
+						metrics.AddFunctionDurationValueArea(c.r.Fun.Name, c.r.ExecutionReport.Duration) // NEW
 
 						if !c.r.ExecutionReport.IsWarmStart {
 							metrics.AddFunctionInitTimeValue(c.r.Fun.Name, c.r.ExecutionReport.InitTime)
-							metrics.AddFunctionInitTimeByArea(c.r.Fun.Name, node.LocalNode.Area, c.r.ExecutionReport.InitTime)
+							metrics.AddFunctionInitTimeValueArea(c.r.Fun.Name, c.r.ExecutionReport.InitTime) // NEW
 
 						}
 					}
@@ -213,4 +220,47 @@ func handleCloudOffload(r *scheduledRequest) {
 func handleLambdaOffload(r *scheduledRequest) {
 	cloudAddress := "aws:externalprovider"
 	handleOffload(r, cloudAddress)
+}
+
+// parsing initial node's offloading path infos to calculate gCO2 for function execution
+func parseInitialProfile(s string) (tx float64, rx float64, mem float64, err error) {
+	parts := strings.Split(s, ";")
+	if len(parts) != 3 {
+		return 0, 0, 0, fmt.Errorf("invalid profile: %q", s)
+	}
+	tx, err = strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid tx: %w", err)
+	}
+	rx, err = strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid rx: %w", err)
+	}
+	mem, err = strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid mem: %w", err)
+	}
+	return
+}
+
+func prepareInitialNodeEnergyProfile(r *scheduledRequest) {
+	if r.offloaded == false {
+		//no initial node profile, cause the function has never been offloaded
+		r.initialNodeTxEnergy = 0.0
+		r.initialNodeRxEnergy = 0.0
+		r.initialNodeMemory = 0.0
+		return
+	}
+	v, ok := r.Params[metaProfile].(string)
+	if ok && v != "" {
+		if tx, rx, mem, err := parseInitialProfile(v); err == nil {
+			r.initialNodeTxEnergy = tx
+			r.initialNodeRxEnergy = rx
+			r.initialNodeMemory = mem
+			return
+		} else {
+			log.Printf("Error parsing initial node energy profile %q: %v", v, err)
+		}
+	}
+
 }

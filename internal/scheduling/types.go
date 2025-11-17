@@ -12,6 +12,11 @@ type scheduledRequest struct {
 	offloaded          bool
 	onExternalProvider bool
 	decisionChannel    chan schedDecision
+
+	// For gCO2 calculation after execution: initial (origin) node profile
+	initialNodeTxEnergy float64 // energy per KB/byte (your unit)
+	initialNodeRxEnergy float64 // energy per KB/byte
+	initialNodeMemory   float64 // aggregate memory on initial node
 }
 
 type completionNotification struct {
@@ -28,6 +33,7 @@ type schedDecision struct {
 	cont       *container.Container
 	remoteHost string
 	useWarm    bool
+	regionName string
 }
 
 type action int64

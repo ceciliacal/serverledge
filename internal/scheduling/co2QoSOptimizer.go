@@ -20,16 +20,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type ProbsV2 struct {
+type MultiRegionProbs struct {
 	PLocal float64
 	PEdge  float64
 	PDrop  float64
 	PCloud map[string]float64 // region -> prob
-}
-
-type OptResp struct {
-	Probs                    map[string]float64 `json:"probs"`
-	DecisionFCProbabilityVar map[string]float64 `json:"decision_fc_probability_var"`
 }
 
 type OptCarbonAwareParams struct {
@@ -130,7 +125,7 @@ type QoSClass struct {
 	DropPenalty     float64 `yaml:"drop_penalty" json:"drop_penalty"`
 }
 
-var qosClasses = make(map[string]QoSClass)
+var qosClasses = make(map[int64]QoSClass)
 
 type Co2QosPolicyConfig struct {
 	ArrivalRate       float64 `yaml:"policy.arrival.rate.alpha" json:"policy.arrival.rate.alpha"`
@@ -166,8 +161,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 
 	// Local node params setting
 	params.NodeMemory = (float64)(node.LocalResources.AvailableMemory())
-	_, intensity, _ := node.LocalResources.Co2Footprint.Snapshot()
-	params.NodeCO2Footprint = (float64)(intensity)
+	params.NodeCO2Footprint = (float64)(node.LocalResources.Co2Footprint.Intensity())
 	params.NodeProcessingPowerConsumption = float64(node.LocalResources.ProcessingPowerConsumption)
 	params.NodeTxEnergyConsumption = float64(node.LocalResources.TxEnergyConsumption)
 	params.NodeRxEnergyConsumption = float64(node.LocalResources.RxEnergyConsumption)
@@ -226,10 +220,9 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		if countEdge > 0 {
 			params.OffloadTimeEdge = sumDist / float64(countEdge)
 		} else {
-			params.OffloadTimeEdge = 0 // or leave unchanged, up to you
+			params.OffloadTimeEdge = 0
 		}
 
-		//_ = distanceLocalToEdge
 	}
 
 	loadBalancers := make(map[string]registration.NodeRegistration)
@@ -252,7 +245,8 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		}
 	}
 
-	params.PossibleDecisions, params.CloudRegions = regions.BuildCloudRegionsAndDecisions(registration.CloudRegions)
+	params.PossibleDecisions, params.CloudRegions =
+		regions.BuildCloudRegionsAndDecisionsEnriched(registration.CloudRegions, fetchAreaStat)
 
 	for _, lb := range loadBalancers {
 		latSec, err := registration.GetTcpLatencySec(lb.IPAddress, lb.APIPort)
@@ -260,7 +254,6 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 			continue
 		}
 		params.OffloadTimeCloud[lb.NodeID.Area] = latSec
-		//todo available cloud memory
 	}
 
 	budget := policy.Config.Budget
@@ -273,7 +266,6 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		return OptCarbonAwareParams{}, fmt.Errorf("impossible obtain functionNames: %w", err)
 	}
 
-	localWarmStatus := node.WarmStatus()
 	retrievedMetrics := metrics.GetMetrics()
 
 	for _, functionName := range functionNames {
@@ -322,40 +314,22 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 				}
 			}
 
-			// Cold starts
-			coldStart := false
-			if n == LOCAL {
-				warmCount, ok := localWarmStatus[functionName]
-				if !ok || warmCount < 1 {
-					coldStart = true
-				}
-			} else {
-				warmCount, ok := nearbyServers[n].AvailableWarmContainers[functionName]
-				if !ok || warmCount < 1 {
-					coldStart = true
+			// Cold start
+			pCold := 1.0
+			if m, ok := retrievedMetrics.EdgeColdStartProbabilityByNode[nId.String()]; ok {
+				if v, ok2 := m[functionName]; ok2 && !math.IsNaN(v) && !math.IsInf(v, 0) {
+					pCold = v
 				}
 			}
-
-			if !coldStart {
-				avgInit = 0
-			}
-			//todo: cold start local e edge
-
-			pCold := 1.0 // Default todo: chiedi xke non c'è distinzione per NODO?
-			if prob, ok := retrievedMetrics.EdgeColdStartProbability[functionName]; ok {
-				pCold = prob
-			}
-
 			if n == LOCAL {
 				// Fill LOCAL maps
 				params.ServTimeLocal[functionName] = execTime
-				params.ColdStartPLocal[functionName] = pCold //todo: sbagliato cambiare
-				params.InitTimeLocal[functionName] = pCold * avgInit
+				params.ColdStartPLocal[functionName] = pCold
+				params.InitTimeLocal[functionName] = avgInit
 			} else {
 				execTimesEdge[n] = execTime
-				initTimesEdge[n] = pCold * avgInit //todo: sbagliato cambiare
+				initTimesEdge[n] = avgInit
 				coldStartsEdge[n] = pCold
-				//todo: cold start capire questa moltiplicazione
 			}
 		}
 
@@ -366,6 +340,8 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		params.InitTimeEdge[functionName] = avgEdgeInitTimes
 		params.ColdStartPEdge[functionName] = avgColdStartsEdge
 		params.BandwidthEdge = 5000.0
+
+		//todo: if node_count in resp GET da LB == 0, salta questa parte
 
 		for areaName := range registration.CloudRegions { // map[string]regions.AreaInfo
 
@@ -405,7 +381,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 					initAvg = v
 				}
 			}
-			params.InitTimeCloud[areaName][functionName] = initAvg * pCold
+			params.InitTimeCloud[areaName][functionName] = initAvg
 			params.BandwidthCloud[areaName] = 10000.0
 		}
 	}
@@ -422,7 +398,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 
 	// Arrival Rates from policy struct (flat "f|class" -> λ)
 	policy.arrivalRatesMutex.RLock()
-	flat := make(map[string]float64, len(policy.arrivalRates))
+	flat := make(map[string]float64)
 	for k, v := range policy.arrivalRates {
 		flat[k] = v
 	}
@@ -433,9 +409,38 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 	params.Beta = policy.BetaWeight
 	params.CO2GreenThreshold = policy.Config.CO2GreenThreshold
 	params.Budget = policy.Config.Budget
-	//todo: bandwidth(va letta da conf) e costi cloud
+	//todo: bandwidth(va letta da conf)
 
 	return params, nil
+}
+
+func fetchAreaStat(area string) (regions.AreaStat, error) {
+	lbs, err := registration.GetLBInArea(area)
+	if err != nil {
+		return regions.AreaStat{}, err
+	}
+	for _, lb := range lbs {
+		url := fmt.Sprintf("http://%s:%d/lb/stats", lb.IPAddress, lb.APIPort)
+
+		client := &http.Client{Timeout: 4 * time.Second}
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			continue
+		}
+
+		var st regions.AreaStat
+		if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+			resp.Body.Close()
+			continue
+		}
+		resp.Body.Close()
+		return st, nil
+	}
+	return regions.AreaStat{}, fmt.Errorf("no reachable LB in area %q", area)
 }
 
 // BuildNestedArrivalRates converts a flat "func|class" -> λ map
@@ -488,6 +493,11 @@ func getQosClasses() []QoSClass {
 	return classes
 }
 
+func getClassNameByID(id int64) (string, bool) {
+	class, found := qosClasses[id]
+	return class.Name, found
+}
+
 // Qos Class yaml parsing
 func loadQosClasses(filePath string) error {
 
@@ -507,12 +517,15 @@ func loadQosClasses(filePath string) error {
 	}
 
 	for _, classDef := range configData.Classes {
-		qosClasses[classDef.Name] = classDef
+		qosClasses[classDef.Id] = classDef
 	}
 
-	log.Printf("Recovered %d QoS classes with success.", len(qosRegistry))
+	log.Printf("Recovered %d QoS classes with success.", len(qosClasses))
 	return nil
 }
+
+// OptimizerResp: func -> class/policy -> action -> prob
+type OptimizerResp map[string]map[string]map[string]float64
 
 func (policy *Co2QosAwarePolicy) optimizerLoop() {
 	ticker := time.NewTicker(15 * time.Second)
@@ -545,57 +558,66 @@ func (policy *Co2QosAwarePolicy) optimizerLoop() {
 		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("Polling: response status: %s", resp.Status)
+			log.Printf("Polling: response status: %s; body=%s", resp.Status, string(body))
 			continue
 		}
 
-		var out OptResp
-		if err := json.Unmarshal(body, &out); err != nil {
-			log.Printf("Polling: decode error: %v", err)
+		// parse nested JSON -> map["<func>|<class>"]MultiRegionProbs
+		parsed, err := parseOptimizerResponse(body)
+
+		log.Printf("========probs from optimizer (parsed): %v", parsed)
+
+		if err != nil {
+			log.Printf("Polling: decode error: %v; body=%s", err, string(body))
 			continue
 		}
 
-		// Build per-region cloud probs
-		pr := buildProbsV2FromFlat(out.Probs)
+		// store each entry into probabilityCache sync.Map
+		for k, v := range parsed {
+			policy.probabilityCache.Store(k, v)
+		}
 
-		// Choose a cache key. If this is per-(function|class), use that key instead of "GLOBAL".
-		const cacheKey = "GLOBAL"
-		policy.probabilityCache.Store(cacheKey, pr)
-
-		// NOTE: out.DecisionFCProbabilityVar is available for future use.
-		log.Printf("Polling: Cache of probability update done")
 	}
 }
 
-// Parse flat keys into ProbsV2.
-// Supports keys: prob_exec, prob_offload_edge, prob_drop, prob_offload_cloud_<region>
-func buildProbsV2FromFlat(flat map[string]float64) ProbsV2 {
-	p := ProbsV2{PCloud: make(map[string]float64)}
-	for k, v := range flat {
-		switch k {
-		case "prob_exec", "prob_local", "prob_local_exec":
-			p.PLocal = v
-		case "prob_offload_edge":
-			p.PEdge = v
-		case "prob_drop":
-			p.PDrop = v
-		default:
-			const pref = "prob_offload_cloud_"
-			if strings.HasPrefix(k, pref) {
-				region := strings.TrimPrefix(k, pref)
-				if region != "" {
-					p.PCloud[region] = v
+// helper: parse the optimizer's nested response
+func parseOptimizerResponse(body []byte) (map[string]MultiRegionProbs, error) {
+	// expected shape: map[function]map[class]map[decision]float64
+	var nested map[string]map[string]map[string]float64
+	if err := json.Unmarshal(body, &nested); err != nil {
+		return nil, fmt.Errorf("unmarshal optimizer response: %w", err)
+	}
+
+	log.Printf("========probs from optimizer (nested) : %v", nested)
+
+	out := make(map[string]MultiRegionProbs, 8)
+
+	for fn, classes := range nested {
+		for class, decisions := range classes {
+			probs := MultiRegionProbs{PCloud: make(map[string]float64, 4)}
+			for dec, v := range decisions {
+				switch {
+				case dec == "DROP":
+					probs.PDrop = v
+				case dec == "EXEC":
+					probs.PLocal = v
+				case dec == "OFFLOAD_EDGE":
+					probs.PEdge = v
+				case strings.HasPrefix(dec, "OFFLOAD_CLOUD_"):
+					region := strings.TrimPrefix(dec, "OFFLOAD_CLOUD_")
+					// normalize to lowercase to match your other code (optional)
+					probs.PCloud[strings.ToLower(region)] = v
+				default:
+					// ignore unknown keys
 				}
 			}
+
+			key := fn + "|" + class
+
+			out[key] = probs
 		}
 	}
-	// Ensure we have an entry for every configured region (0 default if absent)
-	for region := range registration.CloudRegions {
-		if _, ok := p.PCloud[region]; !ok {
-			p.PCloud[region] = 0.0
-		}
-	}
-	return p
+	return out, nil
 }
 
 func (policy *Co2QosAwarePolicy) calculateArrivalRates() {

@@ -101,7 +101,6 @@ func retrieveByFunction(query string, api v1.API, ctx context.Context) (map[stri
 	})
 }
 
-// todo: usa questo! oppure retrieve by function and Region
 func retrieveByFunctionAndNode(query string, api v1.API, ctx context.Context) (map[string]map[string]float64, error) {
 	return retrieveMetrics(query, api, ctx, []string{"function", "node"}, func(samples []metricSample) (map[string]map[string]float64, error) {
 		result := make(map[string]map[string]float64)
@@ -221,6 +220,20 @@ func MetricsRetriever() {
 			}
 			retrievedMetrics.EdgeColdStartProbability = edgeColdStartProb
 
+			// --- Edge cold-start probability per node (within local area) ---
+			query = fmt.Sprintf(
+				`(sum by (function,node) (%s{node=~"\\(%s\\).*"}))
+      			/
+     			(sum by (function,node) (%s{node=~"\\(%s\\).*"}))`,
+				COLD_STARTS_NODE, localArea, COMPLETIONS_NODE, localArea,
+			)
+			pcoldByNode, err := retrieveByFunctionAndNode(query, api, ctx)
+			if err != nil {
+				log.Printf("Error retrieving per-node edge pCold: %v", err)
+			} else {
+				retrievedMetrics.EdgeColdStartProbabilityByNode = pcoldByNode
+			}
+
 			// CLOUD (perche nodo cloud non ha remote area) -> questa non va bene xke miei nodi non è detto che abbiano remote area segnata
 			cloudArea := config.GetString(config.REGISTRY_REMOTE_AREA, "")
 			if cloudArea != "" {
@@ -260,7 +273,7 @@ func MetricsRetriever() {
 				for _, a := range cloudRegions {
 					areaName := a.AreaName
 
-					// make sure the outer maps exist
+					// ensure outer maps exist
 					if retrievedMetrics.CloudRegionColdStartProbability == nil {
 						retrievedMetrics.CloudRegionColdStartProbability = make(map[string]map[string]float64)
 					}
@@ -270,13 +283,22 @@ func MetricsRetriever() {
 					if retrievedMetrics.AvgCloudRegionInitTime == nil {
 						retrievedMetrics.AvgCloudRegionInitTime = make(map[string]map[string]float64)
 					}
+					if _, ok := retrievedMetrics.CloudRegionColdStartProbability[areaName]; !ok {
+						retrievedMetrics.CloudRegionColdStartProbability[areaName] = make(map[string]float64)
+					}
+					if _, ok := retrievedMetrics.AvgCloudRegionExecutionTime[areaName]; !ok {
+						retrievedMetrics.AvgCloudRegionExecutionTime[areaName] = make(map[string]float64)
+					}
+					if _, ok := retrievedMetrics.AvgCloudRegionInitTime[areaName]; !ok {
+						retrievedMetrics.AvgCloudRegionInitTime[areaName] = make(map[string]float64)
+					}
 
-					// exact synthetic node label used by AddFunction*ByArea(...)
-					nodeLabel := fmt.Sprintf("(%s)aggregate", areaName)
-
-					// --- Cold start probability per function (area-scoped counters)
-					query = fmt.Sprintf("%s{area=\"%s\"}/%s{area=\"%s\"}",
-						COLD_STARTS, areaName, COMPLETIONS, areaName)
+					// === 1) p(cold start) per function in this area ===
+					// Uses counters that already have labels: area,function
+					query = fmt.Sprintf(
+						`sum by (function) (%s{area="%s"}) / clamp_min(sum by (function) (%s{area="%s"}), 1)`,
+						COLD_STARTS, areaName, COMPLETIONS, areaName,
+					)
 					coldStartProbPerFunction, err := retrieveByFunction(query, api, ctx)
 					if err != nil {
 						log.Printf("Error retrieving cloud-region cold start prob for %s: %v", areaName, err)
@@ -286,9 +308,15 @@ func MetricsRetriever() {
 						retrievedMetrics.CloudRegionColdStartProbability[areaName][fn] = v
 					}
 
-					// --- Avg execution time per function (node-scoped histograms; use exact node)
-					query = fmt.Sprintf("%s_sum{node=\"%s\"}/%s_count{node=\"%s\"}",
-						EXECUTION_TIME, nodeLabel, EXECUTION_TIME, nodeLabel)
+					// === 2) Avg execution time per function (simple mean across nodes) ===
+					// Mean of node means: avg over nodes of (sum/count) at node granularity
+					query = fmt.Sprintf(
+						`avg by (function) (
+                (sum by (function, node) (%s_sum{node=~"\\(%s\\).*"}))
+              / (sum by (function, node) (%s_count{node=~"\\(%s\\).*"}))
+             )`,
+						EXECUTION_TIME, areaName, EXECUTION_TIME, areaName,
+					)
 					avgFunDuration, err := retrieveByFunction(query, api, ctx)
 					if err != nil {
 						log.Printf("Error retrieving cloud-region exec time for %s: %v", areaName, err)
@@ -298,9 +326,14 @@ func MetricsRetriever() {
 						retrievedMetrics.AvgCloudRegionExecutionTime[areaName][fn] = v
 					}
 
-					// --- Avg init time per function (same node)
-					query = fmt.Sprintf("%s_sum{node=\"%s\"}/%s_count{node=\"%s\"}",
-						INITIALIZATION_TIME, nodeLabel, INITIALIZATION_TIME, nodeLabel)
+					// === 3) Avg init time per function (simple mean across nodes) ===
+					query = fmt.Sprintf(
+						`avg by (function) (
+                (sum by (function, node) (%s_sum{node=~"\\(%s\\).*"}))
+              / (sum by (function, node) (%s_count{node=~"\\(%s\\).*"}))
+             )`,
+						INITIALIZATION_TIME, areaName, INITIALIZATION_TIME, areaName,
+					)
 					avgInitTime, err := retrieveByFunction(query, api, ctx)
 					if err != nil {
 						log.Printf("Error retrieving cloud-region init time for %s: %v", areaName, err)
@@ -309,8 +342,8 @@ func MetricsRetriever() {
 					for fn, v := range avgInitTime {
 						retrievedMetrics.AvgCloudRegionInitTime[areaName][fn] = v
 					}
-				}
-			}
+				} // end for cloud regions
+			} //todo: rate over a window?
 
 			//EXTERNAL PROVIDER
 			policyConf = config.GetString(config.SCHEDULING_POLICY, "default")

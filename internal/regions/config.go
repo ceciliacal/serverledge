@@ -2,6 +2,9 @@ package regions
 
 import (
 	"fmt"
+	"log"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +18,7 @@ var (
 	pollEvery time.Duration
 )
 
-// ReadRegionConfiguration loads YAML, populates package state, and returns the selected area + poll interval.
+// ReadRegionConfiguration loads region scenario YAML, populates package state, and returns the selected area + poll interval.
 func ReadRegionConfiguration(filename, myArea string) (AreaInfo, time.Duration, error) {
 	if filename == "" {
 		return AreaInfo{}, 0, fmt.Errorf("no CO2 config file specified")
@@ -78,20 +81,67 @@ func GetAllAreas() []AreaInfo {
 	return out
 }
 
-// Names returns all area names.
-func Names() []string {
-	mu.RLock()
-	defer mu.RUnlock()
-	names := make([]string, 0, len(allAreas))
-	for _, a := range allAreas {
-		names = append(names, a.AreaName)
-	}
-	return names
-}
-
 // PollInterval returns the configured poll interval.
 func PollInterval() time.Duration {
 	mu.RLock()
 	defer mu.RUnlock()
 	return pollEvery
+}
+
+// vec layout:
+//
+//	[0]=avg mem (bytes, LB) [1]=CO2 (LB)
+//	[2]=proc power W (static) [3]=tx J/B (static)
+//	[4]=rx J/B (static)       [5]=cost (static)
+func BuildCloudRegionsAndDecisionsEnriched(
+	cloudRegionsWithLB map[string]AreaInfo,
+	fetch func(area string) (AreaStat, error)) ([]string, map[string][]float64) {
+	decisions := []string{"EXEC", "OFFLOAD_EDGE", "DROP"}
+
+	paramsCloudRegions := make(map[string][]float64)
+
+	// stable ordering
+	areaNames := make([]string, 0)
+
+	//se num nodi cloudRegionsWithLB = 0 non deve stare in cloudRegionsWithLB regions
+	for name, _ := range cloudRegionsWithLB {
+		areaNames = append(areaNames, name)
+	}
+	sort.Strings(areaNames)
+
+	for _, areaName := range areaNames {
+		ai := cloudRegionsWithLB[areaName]
+
+		// start from static defaults
+		vec := make([]float64, 6)
+		//vec[2] = ai.ProcessingPowerConsumption
+		//vec[3] = ai.TxEnergyConsumption /// 1e9
+		//vec[4] = ai.RxEnergyConsumption /// 1e9
+		//vec[5] = ai.Cost
+
+		// optionally enrich from LB stats
+		if fetch != nil {
+			if st, err := fetch(areaName); err == nil {
+				vec[0] = st.AvgAvailableMem
+				vec[1] = st.CO2
+				ai.NumNodes = st.NodeCount
+
+				vec[2] = st.ProcessingPowerConsumption
+				vec[3] = st.TxEnergyConsumption /// 1e9
+				vec[4] = st.RxEnergyConsumption /// 1e9
+				vec[5] = st.Cost
+			}
+		}
+
+		if ai.NumNodes > 0 {
+			decisions = append(decisions, "OFFLOAD_CLOUD_"+strings.ToUpper(areaName))
+			paramsCloudRegions[areaName] = vec
+			cloudRegionsWithLB[areaName] = ai
+		} else {
+			log.Printf("Removing %s among cloud regions as its stats report numNodes: %f", areaName)
+		}
+
+	}
+
+	return decisions, paramsCloudRegions
 }

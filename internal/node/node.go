@@ -42,7 +42,6 @@ type Resources struct {
 	ProcessingPowerConsumption float64
 	TxEnergyConsumption        float64
 	RxEnergyConsumption        float64
-	GCo2Emissions              float64
 }
 
 func (n *Resources) Init() {
@@ -51,15 +50,14 @@ func (n *Resources) Init() {
 	n.totalMemory = int64(config.GetInt(config.POOL_MEMORY_MB, 1024))
 	n.containerPools = make(map[string]*ContainerPool)
 
-	//todo: energy configs (fix default values)-> co2footprint potrebbe non servire come attributo
-	n.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 100.0)
-	n.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 100.0)
-	n.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 100.0)
-	n.GCo2Emissions = 0.0
+	n.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 400.0)
+	n.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 100.0) / 1e9
+	n.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 100.0) / 1e9
 }
 
 func (n *Resources) String() string {
-	return fmt.Sprintf("[CPUs: %f/%f - Mem: %d(+%d warm)/%d]", n.usedCPUs, n.totalCPUs, n.busyPoolUsedMem, n.warmPoolUsedMem, n.totalMemory)
+	fmt.Sprintf("[CPUs: %f/%f - Mem: %d(+%d warm)/%d]", n.usedCPUs, n.totalCPUs, n.busyPoolUsedMem, n.warmPoolUsedMem, n.totalMemory)
+	return fmt.Sprintf("[ProcessingPowerConsumption: %f - TxEnergyConsumption: %f - RxEnergyConsumption: %f\n]", n.ProcessingPowerConsumption, n.TxEnergyConsumption, n.RxEnergyConsumption)
 }
 
 func (n *Resources) FreeMemory() int64 {

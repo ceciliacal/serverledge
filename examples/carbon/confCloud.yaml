@@ -1,8 +1,10 @@
 api.port: 1328
-cloud: true
-#cloud.server.url: "http://127.0.0.1:1326"
 #container.pool.memory: 8192
 scheduler.policy: localonly
 registry.area: "cloud_region_a"
 registry.udp.port: 9870
-regions.file.path: "./examples/carbon/regionsBrown.yml"
+regions.file.path: "./examples/carbon/regionsBrown.yaml"
+consumption.processing.power: 800.0
+consumption.energy.tx: 5120.0
+consumption.energy.rx: 3072.0
+metrics.enabled: true

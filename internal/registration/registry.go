@@ -111,13 +111,125 @@ func registerToEtcd(asLoadBalancer bool) error {
 	return nil
 }
 
+// Robustly (re)register this node/LB under a TTL lease and keep it alive.
+// If the lease dies (etcd restart, network blip), we auto re-register.
+func registerToEtcdRobust(asLoadBalancer bool) error {
+	log.Printf("Registration for node: %s\n", node.LocalNode)
+
+	defaultAddressStr := "127.0.0.1"
+	if address, err := utils.GetOutboundIp(); err == nil {
+		defaultAddressStr = address.String()
+	}
+
+	var err error
+	etcdClient, err = utils.GetEtcdClient()
+	if err != nil {
+		log.Fatal(UnavailableClientErr)
+		return UnavailableClientErr
+	}
+
+	registeredLocalIP := config.GetString(config.API_IP, defaultAddressStr)
+	apiPort := config.GetInt(config.API_PORT, 1323)
+	udpPort := config.GetInt(config.LISTEN_UDP_PORT, 9876)
+
+	payload := fmt.Sprintf("%s;%d;%d", registeredLocalIP, apiPort, udpPort)
+	SelfRegistration = &NodeRegistration{
+		NodeID:         node.LocalNode,
+		IPAddress:      registeredLocalIP,
+		APIPort:        apiPort,
+		UDPPort:        udpPort,
+		IsLoadBalancer: asLoadBalancer,
+	}
+	etcdKey := SelfRegistration.toEtcdKey()
+	log.Printf("Registering to etcd: %s\n", etcdKey)
+
+	// Start a background loop that (re)grants a lease, PUTs the key and keeps it alive.
+	go keepRegistered(etcdKey, payload)
+
+	return nil
+}
+
+// Single ownership loop: creates a lease, attaches key, keeps it alive.
+// On any keepalive failure (incl. "requested lease not found"), it re-registers.
+func keepRegistered(etcdKey, payload string) {
+	for {
+		// 1) grant a new lease
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		lgr, err := etcdClient.Grant(ctx, etcdLeaseTTL)
+		cancel()
+		if err != nil {
+			log.Printf("etcd: grant lease failed: %v", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		etcdLease = lgr.ID
+
+		// 2) put the key with this lease
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = etcdClient.Put(ctx, etcdKey, payload, clientv3.WithLease(etcdLease))
+		cancel()
+		if err != nil {
+			log.Printf("etcd: put with lease failed: %v", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		log.Printf("etcd: registered %s (lease %d)", etcdKey, etcdLease)
+
+		// 3) start streaming keepalive
+		kaCh, err := etcdClient.KeepAlive(context.Background(), etcdLease)
+		if err != nil {
+			log.Printf("etcd: keepalive start failed: %v", err)
+			time.Sleep(time.Second)
+			continue
+		}
+
+		// 4) watch keepalive responses; if the channel closes, we re-register.
+		for {
+			ka, ok := <-kaCh
+			if !ok || ka == nil {
+				// Channel closed -> lease lost (etcd restart, timeout, or connection issue)
+				log.Printf("etcd: keepalive stream closed (lease %d); re-registering…", etcdLease)
+				break
+			}
+			// Optionally log sparingly:
+			// log.Printf("etcd: KA OK lease=%d ttl=%d", ka.ID, ka.TTL)
+		}
+
+		// loop to (re)grant and re-put
+	}
+}
+
+func GetLBByKey(area, key string) (*NodeRegistration, error) {
+	if etcdClient == nil {
+		return nil, fmt.Errorf("etcd client not initialized")
+	}
+	base := areaEtcdKey(area) + registryLoadBalancerDirectory + "/"
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	resp, err := etcdClient.Get(ctx, base+key)
+	if err != nil {
+		return nil, fmt.Errorf("etcd get lb: %w", err)
+	}
+	if len(resp.Kvs) == 0 {
+		return nil, fmt.Errorf("lb key not found: %s/%s", area, key)
+	}
+
+	reg, err := parseEtcdRegisteredNode(area, key, resp.Kvs[0].Value)
+	if err != nil {
+		return nil, err
+	}
+	reg.IsLoadBalancer = true
+	return &reg, nil
+}
+
 // RegisterNode make a registration to the local Area
 func RegisterNode() error {
 	return registerToEtcd(false)
 }
 
 func RegisterLoadBalancer() error {
-	return registerToEtcd(true)
+	return registerToEtcdRobust(true)
 }
 
 func keepAliveLease() {
@@ -421,6 +533,8 @@ func GetPeerFromKey(key string) *NodeRegistration {
 	mutex.RLock()
 	defer mutex.RUnlock()
 	reg, ok := neighbors[key]
+	log.Printf("neighbors[key] ", neighbors[key])
+
 	if !ok {
 		return nil
 	}

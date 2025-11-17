@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
-	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda"
+	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 
 	"github.com/serverledge-faas/serverledge/internal/client"
 	"github.com/serverledge-faas/serverledge/internal/function"
@@ -31,7 +32,29 @@ func pickEdgeNodeForOffloading(r *scheduledRequest) (url string) {
 	return randomItem.APIUrl()
 }
 
+const metaProfile = "__sl_initial_profile"
+
 func Offload(r *scheduledRequest, serverUrl string) error {
+
+	// Populating params with infos to calculate total gCO2 emitted
+
+	// Ensure params map exists
+	if r.Params == nil {
+		r.Params = map[string]any{}
+	}
+
+	// Only set if not already present (preserve if upstream set it)
+	if _, ok := r.Params[metaProfile]; !ok {
+		// Get the origin's profile (this node)
+		tx := node.LocalResources.TxEnergyPerByte()
+		rx := node.LocalResources.RxEnergyPerByte()
+		mem := float64(node.LocalResources.AvailableMemory())
+
+		// Encode: "<tx>;<rx>;<memory>"
+		profile := fmt.Sprintf("%.9g;%.9g;%.9g", tx, rx, mem)
+		r.Params[metaProfile] = profile
+	}
+
 	// Prepare request
 	request := client.InvocationRequest{Params: r.Params, QoSClass: r.Class, QoSMaxRespT: r.MaxRespT}
 	invocationBody, err := json.Marshal(request)

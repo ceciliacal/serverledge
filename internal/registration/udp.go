@@ -69,16 +69,24 @@ func handleUDPConnection(conn *net.UDPConn) {
 // TODO: this function should reuse the code in api.go for the /status API
 func getCurrentStatusInformation() (status []byte, err error) {
 	response := StatusInformation{
-		AvailableWarmContainers: node.WarmStatus(),
-		TotalMemory:             node.LocalResources.TotalMemory(),
-		TotalCPU:                node.LocalResources.TotalCPUs(),
-		UsedMemory:              node.LocalResources.UsedMemory(),
-		UsedCPU:                 node.LocalResources.UsedCPUs(),
-		Coordinates:             *VivaldiClient.GetCoordinate(),
+		AvailableWarmContainers:    node.WarmStatus(),
+		TotalMemory:                node.LocalResources.TotalMemory(),
+		TotalCPU:                   node.LocalResources.TotalCPUs(),
+		UsedMemory:                 node.LocalResources.UsedMemory(),
+		UsedCPU:                    node.LocalResources.UsedCPUs(),
+		Coordinates:                *VivaldiClient.GetCoordinate(),
+		CO2Intensity:               node.LocalResources.Co2Footprint.Intensity(),
+		ProcessingPowerConsumption: node.LocalResources.ProcessingPower(),
+		TxEnergyConsumption:        node.LocalResources.TxEnergyPerByte(),
+		RxEnergyConsumption:        node.LocalResources.RxEnergyPerByte(),
 	}
 
 	return json.Marshal(response)
 
+}
+
+func GetStatus(peer *NodeRegistration) (*StatusInformation, time.Duration) {
+	return statusInfoRequest(peer)
 }
 
 func statusInfoRequest(peer *NodeRegistration) (info *StatusInformation, duration time.Duration) {

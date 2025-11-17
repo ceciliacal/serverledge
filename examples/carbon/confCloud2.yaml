@@ -1,0 +1,9 @@
+api.port: 1327
+scheduler.policy: localonly
+registry.area: "cloud_region_b"
+registry.udp.port: 9873
+regions.file.path: "./examples/carbon/regionsBrown.yaml"
+consumption.processing.power: 800.0 #Watt
+consumption.energy.tx: 5120.0       #nJ/byte
+consumption.energy.rx: 3072.0
+metrics.enabled: true
