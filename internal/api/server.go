@@ -34,6 +34,7 @@ func StartAPIServer(e *echo.Echo) {
 	e.GET("/status", GetServerStatus)
 	e.POST("/prewarm", PrewarmFunction)
 	e.GET("/warm/:fun", GetWarmContainerExistence)
+	e.GET("/function/:fun/variants", GetFunctionVariants)
 
 	if config.GetBool(config.METRICS_ENABLED, false) {
 		e.GET("/metrics", func(c echo.Context) error {

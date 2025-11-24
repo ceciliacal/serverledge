@@ -24,6 +24,61 @@ type Function struct {
 	Signature        *Signature
 	ExternalProvider string
 	ArnCode          string
+
+	IsDefault       bool
+	SpeedUp         float64
+	DefaultFunction string
+	Utility         float64
+	ActiveVariant   *Function
+}
+
+func HasVariants(f *Function) bool {
+	variants, err := GetVariantsOf(f.Name)
+	return err == nil && len(variants) > 0
+}
+
+// GetVariantsOf returns all functions that are variants of the given base function.
+// A variant is any Function such that:
+//   - f.IsDefault == false
+//   - f.DefaultFunction == baseName
+func GetVariantsOf(baseName string) ([]*Function, error) {
+	// Get all function names from etcd
+	names, err := GetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	variants := make([]*Function, 0)
+
+	for _, name := range names {
+		f, ok := GetFunction(name)
+		if !ok || f == nil {
+			continue
+		}
+
+		if !f.IsDefault && f.DefaultFunction == baseName {
+			variants = append(variants, f)
+		}
+	}
+
+	return variants, nil
+}
+
+func GetVariantNamesOf(baseName string) ([]string, error) {
+	variants, err := GetVariantsOf(baseName)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(variants))
+	for _, f := range variants {
+		if f == nil {
+			continue
+		}
+		names = append(names, f.Name)
+	}
+
+	return names, nil
 }
 
 func (f *Function) getEtcdKey() string {

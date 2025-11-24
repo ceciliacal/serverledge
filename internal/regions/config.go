@@ -114,10 +114,6 @@ func BuildCloudRegionsAndDecisionsEnriched(
 
 		// start from static defaults
 		vec := make([]float64, 6)
-		//vec[2] = ai.ProcessingPowerConsumption
-		//vec[3] = ai.TxEnergyConsumption /// 1e9
-		//vec[4] = ai.RxEnergyConsumption /// 1e9
-		//vec[5] = ai.Cost
 
 		// optionally enrich from LB stats
 		if fetch != nil {

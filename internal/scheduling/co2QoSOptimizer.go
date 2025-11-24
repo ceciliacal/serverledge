@@ -21,10 +21,11 @@ import (
 )
 
 type MultiRegionProbs struct {
-	PLocal float64
-	PEdge  float64
-	PDrop  float64
-	PCloud map[string]float64 // region -> prob
+	PLocal    float64
+	PEdge     float64
+	PDrop     float64
+	PCloud    map[string]float64 // region -> prob
+	PLocalVar float64            // probability mass for EXEC_VAR
 }
 
 type OptCarbonAwareParams struct {
@@ -32,6 +33,7 @@ type OptCarbonAwareParams struct {
 	PossibleDecisions []string             `json:"possible_decisions"` // e.g., "LOCAL_EXEC", "OFFLOAD_EDGE", "OFFLOAD_CLOUD_<region>", "DROP"
 	Functions         []string             `json:"functions"`          // function names
 	Classes           []string             `json:"classes"`            // class names
+	Variants          map[string][]string  `json:"variants"`           // base function -> list of variant names
 	// [function][class] -> λ
 	ArrivalRates map[string]map[string]float64 `json:"arrival_rates"`
 
@@ -80,6 +82,7 @@ type OptCarbonAwareParams struct {
 
 	ClassMaxRt           map[string]float64 `json:"class_maxRt"`            // class -> seconds
 	ClassUtility         map[string]float64 `json:"class_utility"`          // class -> scalar
+	VariantUtility       map[string]float64 `json:"variant_utility"`        // class -> scalar
 	ClassDeadlinePenalty map[string]float64 `json:"class_deadline_penalty"` // class -> scalar
 	ClassDropPenalty     map[string]float64 `json:"class_drop_penalty"`     // class -> scalar
 
@@ -88,6 +91,7 @@ type OptCarbonAwareParams struct {
 func initOptCarbonAwareParams() OptCarbonAwareParams {
 	return OptCarbonAwareParams{
 		CloudRegions: make(map[string][]float64),
+		Variants:     make(map[string][]string),
 		ArrivalRates: make(map[string]map[string]float64),
 		// Per-function
 		FunctionMemory:         make(map[string]int64),
@@ -111,6 +115,7 @@ func initOptCarbonAwareParams() OptCarbonAwareParams {
 		// Per-class
 		ClassMaxRt:           make(map[string]float64),
 		ClassUtility:         make(map[string]float64),
+		VariantUtility:       make(map[string]float64),
 		ClassDeadlinePenalty: make(map[string]float64),
 		ClassDropPenalty:     make(map[string]float64),
 	}
@@ -245,6 +250,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		}
 	}
 
+	// Build baseline decisions (EXEC, OFFLOAD_EDGE, DROP, OFFLOAD_CLOUD_*)
 	params.PossibleDecisions, params.CloudRegions =
 		regions.BuildCloudRegionsAndDecisionsEnriched(registration.CloudRegions, fetchAreaStat)
 
@@ -259,7 +265,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 	budget := policy.Config.Budget
 	params.Budget = budget
 
-	//functions
+	// FUNCTIONS
 	functionNames, err := function.GetAll()
 
 	if err != nil {
@@ -275,21 +281,39 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 			continue
 		}
 
+		// Avg input size (from metrics or defaults)
 		var avgInputSize = 100.0
-
 		if size, ok := retrievedMetrics.AvgInputSize[functionName]; ok && size > 0 {
 			avgInputSize = size
 		}
 
+		// Avg output size
 		var avgOutputSize = 10.0
 		if outputSize, ok := retrievedMetrics.AvgOutputSize[functionName]; ok && outputSize > 0 {
 			avgOutputSize = outputSize
 		}
 
+		// Basic function info
 		params.Functions = append(params.Functions, functionName)
 		params.FunctionMemory[functionName] = realFunc.MemoryMB
 		params.FunctionInputSizeMean[functionName] = avgInputSize
 		params.FunctionOutputSizeMean[functionName] = avgOutputSize
+
+		// Retrieving variants of current functions
+		if vs, err := function.GetVariantNamesOf(functionName); err == nil && len(vs) > 0 {
+			params.Variants[functionName] = vs
+
+			// variant utility
+			for _, vName := range vs {
+				vFunc, ok := function.GetFunction(vName)
+				if !ok || vFunc == nil {
+					log.Printf("prepareOptimizerParams: variant %s of %s not found in function registry", vName, functionName)
+					continue
+				}
+				params.VariantUtility[vName] = vFunc.Utility
+			}
+
+		}
 
 		execTimesEdge := make(map[string]float64) //[node]=float
 		initTimesEdge := make(map[string]float64)
@@ -336,10 +360,10 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		avgEdgeExecTimes := avgMap(execTimesEdge)
 		avgEdgeInitTimes := avgMap(initTimesEdge)
 		avgColdStartsEdge := avgMap(coldStartsEdge)
-		params.ServTimeEdge[functionName] = avgEdgeExecTimes //todo: mettere valori di default if map is empty
+		params.ServTimeEdge[functionName] = avgEdgeExecTimes
 		params.InitTimeEdge[functionName] = avgEdgeInitTimes
 		params.ColdStartPEdge[functionName] = avgColdStartsEdge
-		params.BandwidthEdge = 5000.0
+		params.BandwidthEdge = 0.0050
 
 		//todo: if node_count in resp GET da LB == 0, salta questa parte
 
@@ -386,6 +410,58 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		}
 	}
 
+	//remove variants from params.function
+	variantNames := make(map[string]struct{})
+
+	for _, vs := range params.Variants { // vs is []string of variant names
+		for _, v := range vs {
+			variantNames[v] = struct{}{}
+		}
+	}
+
+	// As an extra safety, treat any function with IsDefault == false as a variant,
+	// in case for some reason it wasn't added to params.Variants.
+	for _, fname := range params.Functions {
+		if f, ok := function.GetFunction(fname); ok && f != nil && !f.IsDefault {
+			variantNames[fname] = struct{}{}
+		}
+	}
+
+	// Filter params.Functions to keep ONLY base/default functions:
+	// i.e., remove anything that is in variantNames.
+	filtered := make([]string, 0, len(params.Functions))
+	for _, fname := range params.Functions {
+		if _, isVariant := variantNames[fname]; isVariant {
+			// Skip this, it's a variant
+			continue
+		}
+		filtered = append(filtered, fname)
+	}
+	params.Functions = filtered
+
+	// adding EXEC_VAR among possible decisions
+	hasAnyVariants := false
+	for _, vs := range params.Variants {
+		if len(vs) > 0 {
+			hasAnyVariants = true
+			break
+		}
+	}
+
+	if hasAnyVariants {
+		already := false
+		for _, d := range params.PossibleDecisions {
+			if d == "EXEC_VAR" {
+				already = true
+				break
+			}
+		}
+		if !already {
+			params.PossibleDecisions = append(params.PossibleDecisions, "EXEC_VAR")
+		}
+	}
+
+	// CLASSES
 	allClasses := getQosClasses()
 	for _, class := range allClasses {
 		currentClassName := class.Name
@@ -563,25 +639,91 @@ func (policy *Co2QosAwarePolicy) optimizerLoop() {
 		}
 
 		// parse nested JSON -> map["<func>|<class>"]MultiRegionProbs
-		parsed, err := parseOptimizerResponse(body)
-
-		log.Printf("========probs from optimizer (parsed): %v", parsed)
-
+		probs, varProbs, err := parseOptimizerResponse(body)
 		if err != nil {
 			log.Printf("Polling: decode error: %v; body=%s", err, string(body))
 			continue
 		}
 
-		// store each entry into probabilityCache sync.Map
-		for k, v := range parsed {
+		log.Printf("========probs from optimizer (probs): %v", probs)
+		log.Printf("========probs from optimizer (varProbs): %v", varProbs)
+
+		for k, v := range probs {
 			policy.probabilityCache.Store(k, v)
+		}
+		for k, v := range varProbs {
+			policy.variantProbCache.Store(k, v)
 		}
 
 	}
 }
 
 // helper: parse the optimizer's nested response
-func parseOptimizerResponse(body []byte) (map[string]MultiRegionProbs, error) {
+func parseOptimizerResponse(body []byte) (map[string]MultiRegionProbs, map[string]map[string]float64, error) {
+	// expected shape:
+	// {
+	//   "probs": { func -> class -> decision -> prob },
+	//   "decision_fc_probability_var": { func -> variant -> class -> prob }
+	// }
+	var raw struct {
+		Probs    map[string]map[string]map[string]float64 `json:"probs"`
+		VarProbs map[string]map[string]map[string]float64 `json:"decision_fc_probability_var"`
+	}
+
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, nil, fmt.Errorf("unmarshal optimizer response: %w", err)
+	}
+
+	out := make(map[string]MultiRegionProbs, 8)
+
+	for fn, classes := range raw.Probs {
+		for class, decisions := range classes {
+			probs := MultiRegionProbs{PCloud: make(map[string]float64, 4)}
+
+			for dec, v := range decisions {
+				switch {
+				case dec == "DROP":
+					probs.PDrop = v
+				case dec == "EXEC":
+					probs.PLocal = v
+				case dec == "EXEC_VAR":
+					probs.PLocalVar = v
+				case dec == "OFFLOAD_EDGE":
+					probs.PEdge = v
+				case strings.HasPrefix(dec, "OFFLOAD_CLOUD_"):
+					region := strings.TrimPrefix(dec, "OFFLOAD_CLOUD_")
+					probs.PCloud[strings.ToLower(region)] = v
+				default:
+					// ignore unknown keys
+				}
+			}
+
+			key := fn + "|" + class
+			out[key] = probs
+		}
+	}
+
+	// Build per-(func,class) variant distributions:
+	// outVar["f1|critical"]["f1_var_0.8"] = p
+	variantOut := make(map[string]map[string]float64)
+
+	for fn, byVariant := range raw.VarProbs {
+		for variantName, byClass := range byVariant {
+			for class, p := range byClass {
+				key := fn + "|" + class
+				if _, ok := variantOut[key]; !ok {
+					variantOut[key] = make(map[string]float64)
+				}
+				variantOut[key][variantName] = p
+			}
+		}
+	}
+
+	return out, variantOut, nil
+}
+
+// helper: parse the optimizer's nested response
+func parseOptimizerResponseOld(body []byte) (map[string]MultiRegionProbs, error) {
 	// expected shape: map[function]map[class]map[decision]float64
 	var nested map[string]map[string]map[string]float64
 	if err := json.Unmarshal(body, &nested); err != nil {

@@ -34,12 +34,15 @@ type schedDecision struct {
 	remoteHost string
 	useWarm    bool
 	regionName string
+
+	variantName string
 }
 
 type action int64
 
 const (
-	DROP        action = 0
-	EXEC_LOCAL         = 1
-	EXEC_REMOTE        = 2
+	DROP               action = 0
+	EXEC_LOCAL                = 1
+	EXEC_REMOTE               = 2
+	EXEC_LOCAL_VARIANT        = 3
 )

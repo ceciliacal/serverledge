@@ -31,6 +31,8 @@ type Co2QosAwarePolicy struct {
 	AlphaWeight        float64                     //weight qos
 	BetaWeight         float64                     //weight co2
 	Config             Co2QosPolicyConfig
+
+	variantProbCache sync.Map // "f|class" -> map[variantName]prob
 }
 
 func (policy *Co2QosAwarePolicy) Init() {
@@ -90,6 +92,8 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 		actionChoice = "Execute locally"
 	} else if decision.action == 2 {
 		actionChoice = "Execute remotely on " + decision.remoteHost
+	} else if decision.action == 3 {
+		actionChoice = "Execute variant locally (" + decision.variantName + ")"
 	}
 
 	log.Printf("Action choiced by evaluator: %s\n", actionChoice)
@@ -137,6 +141,43 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 		log.Printf("In OnArrival - offloading to CLOUD REGION: %s - target node: %s\n", decision.regionName, decision.remoteHost)
 
 		handleOffload(r, decision.remoteHost)
+
+	} else if decision.action == 3 { //EXEC_VAR
+		// Local execution of a variant
+		if decision.variantName == "" {
+			log.Printf("Variant decision but empty variantName; falling back to base function %s", r.Fun.Name)
+			containerID, warm, err := node.AcquireContainer(r.Fun, false)
+			if err == nil {
+				execLocally(r, containerID, warm)
+			} else {
+				log.Printf("Error in choosing container: %v", err)
+			}
+		} else {
+			// Look up variant as a normal function
+			variantFun, ok := function.GetFunction(decision.variantName)
+			if !ok || variantFun == nil {
+				log.Printf("Variant function %q not found; falling back to base %q", decision.variantName, r.Fun.Name)
+				containerID, warm, err := node.AcquireContainer(r.Fun, false)
+				if err == nil {
+					execLocally(r, containerID, warm)
+				} else {
+					log.Printf("Error in choosing container: %v", err)
+				}
+			} else {
+				// SWITCH TO THE VARIANT OF F
+				r.Fun = variantFun
+				containerID, warm, err := node.AcquireContainer(variantFun, false)
+				log.Printf("Policy: executing variant %q instead of base %q for request %s",
+					decision.variantName, r.Fun.Name, r.Id())
+
+				if err == nil {
+					execLocally(r, containerID, warm)
+				} else {
+					log.Printf("Error acquiring container for variant %q: %v", decision.variantName, err)
+				}
+			}
+		}
+
 	}
 
 	log.Printf("Execution of function: %s  with action: %s done\n.", r.Fun.Name, actionChoice)
@@ -144,32 +185,35 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 }
 
 func (policy *Co2QosAwarePolicy) OnCompletion(fun *function.Function, executionReport *function.ExecutionReport) {
-	//todo: co2 metric update
 }
 
 func (policy *Co2QosAwarePolicy) evaluate(r *scheduledRequest, cacheKey string) (schedDecision, error) {
-	if !r.CanDoOffloading {
-		if node.CanExecuteLocally(r.Fun.CPUDemand, r.Fun.MemoryMB) {
-			return schedDecision{action: EXEC_LOCAL}, nil
-		}
-		return schedDecision{action: DROP}, nil
-	}
-
 	val, ok := policy.probabilityCache.Load(cacheKey)
 	log.Printf("In EVALUATE - loaded probs (val): %s\n", val)
 
 	var probs MultiRegionProbs
 	if ok {
 		probs = val.(MultiRegionProbs)
-		log.Printf("probs[%s]: PLocal=%.4f PEdge=%.4f PDrop=%.4f PCloud=%v",
-			cacheKey, probs.PLocal, probs.PEdge, probs.PDrop, probs.PCloud)
+		log.Printf("probs[%s]: PLocal=%.4f PLocalVar=%.4f PEdge=%.4f PDrop=%.4f PCloud=%v",
+			cacheKey, probs.PLocal, probs.PLocalVar, probs.PEdge, probs.PDrop, probs.PCloud)
+
 	} else {
+		// base fallback (no optimizer entry)
 		probs = MultiRegionProbs{
-			PLocal: 0.25,
-			PEdge:  0.25,
-			PDrop:  0.25,
-			PCloud: make(map[string]float64),
+			PLocal:    0.25,
+			PLocalVar: 0.0,
+			PEdge:     0.25,
+			PDrop:     0.25,
+			PCloud:    make(map[string]float64),
 		}
+
+		// If this function has variants, give some of the local mass to variants
+		if function.HasVariants(r.Fun) {
+			// Example: split the 0.25 local mass between base and variants
+			probs.PLocal = 0.125
+			probs.PLocalVar = 0.125
+		}
+
 		regCount := len(registration.CloudRegions)
 		if regCount > 0 {
 			per := 0.25 / float64(regCount)
@@ -179,14 +223,31 @@ func (policy *Co2QosAwarePolicy) evaluate(r *scheduledRequest, cacheKey string) 
 		}
 	}
 
+	// load per-variant probabilities for (func, class) if present
+	var variantProbs map[string]float64
+	if v, ok := policy.variantProbCache.Load(cacheKey); ok {
+		variantProbs = v.(map[string]float64)
+	}
+
 	// If local cannot run it, zero local probability
 	if !node.CanExecuteLocally(r.Fun.CPUDemand, r.Fun.MemoryMB) {
-		probs.PLocal = 0
+		probs.PLocal = 0.0
+		probs.PLocalVar = 0.0
 	}
-	return randomizedChoiceV2(probs)
+
+	// 4.b) If THIS REQUEST forbids offloading, we must not use edge/cloud.
+	//      But variants are still LOCAL, so they remain allowed here.
+	if !r.CanDoOffloading {
+		probs.PEdge = 0
+		for region := range probs.PCloud {
+			probs.PCloud[region] = 0
+		}
+	}
+
+	return randomizedChoiceV2(probs, variantProbs)
 }
 
-func randomizedChoiceV2(probs MultiRegionProbs) (schedDecision, error) {
+func randomizedChoiceV2(probs MultiRegionProbs, variantProbs map[string]float64) (schedDecision, error) {
 	regionNames := make([]string, 0, len(registration.CloudRegions))
 	for region := range registration.CloudRegions {
 		regionNames = append(regionNames, region)
@@ -194,7 +255,7 @@ func randomizedChoiceV2(probs MultiRegionProbs) (schedDecision, error) {
 	sort.Strings(regionNames)
 
 	// Sum probabilities
-	sum := probs.PLocal + probs.PEdge + probs.PDrop
+	sum := probs.PLocal + probs.PLocalVar + probs.PEdge + probs.PDrop
 	for _, region := range regionNames {
 		sum += probs.PCloud[region]
 	}
@@ -202,10 +263,25 @@ func randomizedChoiceV2(probs MultiRegionProbs) (schedDecision, error) {
 		return schedDecision{action: DROP}, nil
 	}
 
-	// Local exec
 	randomValue := rand.Float64()
 	cumulative := probs.PLocal / sum
+
+	// Base local execution
 	if randomValue < cumulative {
+		return schedDecision{action: EXEC_LOCAL}, nil
+	}
+
+	// Local execution of variants
+	cumulative += probs.PLocalVar / sum
+	if randomValue < cumulative {
+		// pick which variant
+		if name, ok := pickVariant(variantProbs); ok {
+			return schedDecision{
+				action:      EXEC_LOCAL_VARIANT,
+				variantName: name,
+			}, nil
+		}
+		// no variants or bad probs -> fall back to base local
 		return schedDecision{action: EXEC_LOCAL}, nil
 	}
 
@@ -216,18 +292,58 @@ func randomizedChoiceV2(probs MultiRegionProbs) (schedDecision, error) {
 		if randomValue < cumulative {
 			remoteLBUrl := regionToRemoteHost(region)
 			log.Printf("In randomizedChoice - cloud offloading to %s\n", region)
-
-			return schedDecision{action: EXEC_REMOTE, remoteHost: remoteLBUrl, regionName: region}, nil
+			return schedDecision{
+				action:     EXEC_REMOTE,
+				remoteHost: remoteLBUrl,
+				regionName: region,
+			}, nil
 		}
 	}
 
 	// Edge
 	cumulative += probs.PEdge / sum
 	if randomValue < cumulative {
-		return schedDecision{action: EXEC_REMOTE, remoteHost: edgeUrl}, nil
+		return schedDecision{
+			action:     EXEC_REMOTE,
+			remoteHost: edgeUrl,
+		}, nil
 	}
 
 	return schedDecision{action: DROP}, nil
+}
+
+// Helper: choose a variant according to its probabilities
+func pickVariant(m map[string]float64) (string, bool) {
+	if len(m) == 0 {
+		return "", false
+	}
+
+	total := 0.0
+	for _, p := range m {
+		if p > 0 {
+			total += p
+		}
+	}
+	if total <= 0 {
+		return "", false
+	}
+
+	r := rand.Float64() * total
+	c := 0.0
+	for name, p := range m {
+		if p <= 0 {
+			continue
+		}
+		c += p
+		if r < c {
+			return name, true
+		}
+	}
+	// Fallback
+	for name := range m {
+		return name, true
+	}
+	return "", false
 }
 
 // return LB url of the input region

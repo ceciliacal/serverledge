@@ -301,3 +301,25 @@ func PrewarmFunction(c echo.Context) error {
 	response := struct{ Prewarmed int64 }{count}
 	return c.JSON(http.StatusOK, response)
 }
+
+// GetFunctionVariants returns all variants of a given function.
+func GetFunctionVariants(c echo.Context) error {
+	baseName := c.Param("fun")
+
+	// Make sure the base function exists
+	_, ok := function.GetFunction(baseName)
+	if !ok {
+		log.Printf("Dropping request for unknown fun '%s'\n", baseName)
+		return c.String(http.StatusNotFound, "Function unknown")
+	}
+
+	vars, err := function.GetVariantsOf(baseName)
+	if err != nil {
+		log.Printf("Could not retrieve variants for '%s': %v\n", baseName, err)
+		return c.String(http.StatusServiceUnavailable, "")
+	}
+
+	// You can decide whether to return full Function objects,
+	// or a lighter struct. For now, we return the Function slice.
+	return c.JSON(http.StatusOK, vars)
+}

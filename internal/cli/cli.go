@@ -4,11 +4,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/serverledge-faas/serverledge/internal/externalprovider"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/serverledge-faas/serverledge/internal/externalprovider"
 
 	"github.com/labstack/gommon/log"
 	"github.com/serverledge-faas/serverledge/internal/client"
@@ -112,6 +113,9 @@ var maxConcurrency int16
 var prewarmCount int64
 var forcePull bool
 var externalProvider string
+var variantName string
+var variantSpeedup float64
+var variantUtility float64
 
 func Init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
@@ -147,6 +151,11 @@ func Init() {
 	prewarmCmd.Flags().BoolVarP(&forcePull, "force_pull", "", false, "Force pull of container image")
 	rootCmd.AddCommand(deleteCmd)
 	deleteCmd.Flags().StringVarP(&funcName, "function", "f", "", "name of the function")
+
+	// For function variant creation
+	createCmd.Flags().StringVar(&variantName, "variant", "", "name of the function variant")
+	createCmd.Flags().Float64Var(&variantSpeedup, "speedup", 1.0, "speedup factor of the variant")
+	createCmd.Flags().Float64Var(&variantUtility, "utility", 1.0, "utility of the variant")
 
 	rootCmd.AddCommand(listCmd)
 	//For ExternalProvider listing
@@ -332,6 +341,12 @@ func create(cmd *cobra.Command, args []string) {
 		showHelpAndExit(cmd)
 	}
 
+	// If a variant is specified, we require a base function name too
+	if variantName != "" && funcName == "" {
+		fmt.Println("When creating a variant you must also specify the base function with -f/--function.")
+		showHelpAndExit(cmd)
+	}
+
 	var encoded string
 	if runtime != "custom" {
 		srcContent, err := ReadSourcesAsTar(src)
@@ -362,8 +377,16 @@ func create(cmd *cobra.Command, args []string) {
 		sig = function.NewSignature().Build()
 	}
 
+	// The “real” function name we register:
+	// - default function: targetName == funcName
+	// - variant:
+	targetName := funcName
+	if variantName != "" {
+		targetName = variantName
+	}
+
 	request := function.Function{
-		Name:             funcName,
+		Name:             targetName, // <-- uses variantName when creating a variant
 		Handler:          handler,
 		Runtime:          runtime,
 		MaxConcurrency:   maxConcurrency,
@@ -373,6 +396,19 @@ func create(cmd *cobra.Command, args []string) {
 		CustomImage:      customImage,
 		Signature:        sig,
 		ExternalProvider: externalProvider,
+	}
+
+	// Default vs variant metadata
+	if variantName != "" {
+		// This is a variant of funcName
+		request.IsDefault = false
+		request.DefaultFunction = funcName
+		request.SpeedUp = variantSpeedup
+		request.Utility = variantUtility
+	} else {
+		// Default implementation
+		request.IsDefault = true
+		request.SpeedUp = 1.0
 	}
 
 	if externalProvider != "" {
