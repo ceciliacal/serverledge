@@ -65,6 +65,8 @@ func Execute(cont *container.Container, r *scheduledRequest, isWarm bool) error 
 	// initializing containers may require invocation retries, adding // latency
 	r.InitTime = initTime + invocationWait.Seconds()
 
+	r.CPUUsage = response.CPUUsage
+
 	// notify scheduler
 	completions <- &completionNotification{r: r, cont: cont, failed: false}
 

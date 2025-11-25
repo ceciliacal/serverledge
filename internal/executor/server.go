@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const resultFile = "/tmp/_executor_result.json"
@@ -71,7 +72,21 @@ func InvokeHandler(w http.ResponseWriter, r *http.Request) {
 
 	var resp *InvocationResult
 	execCmd := exec.Command(cmd[0], cmd[1:]...)
+
+	// --- start CPU timing ---
+	start := time.Now()
 	out, err := execCmd.CombinedOutput()
+	elapsed := time.Since(start)
+
+	var cpuUsage float64
+	if ps := execCmd.ProcessState; ps != nil && elapsed > 0 {
+		user := ps.UserTime()
+		sys := ps.SystemTime()
+		totalCPU := user + sys
+		cpuUsage = float64(totalCPU) / float64(elapsed) * 100.0
+	}
+	// --- end CPU timing ---
+
 	if err != nil {
 		log.Printf("cmd.Run() failed with %s\n", err)
 		if req.ReturnOutput {
@@ -83,9 +98,9 @@ func InvokeHandler(w http.ResponseWriter, r *http.Request) {
 		result := readExecutionResult(resultFile)
 
 		if req.ReturnOutput {
-			resp = &InvocationResult{true, result, string(out)}
+			resp = &InvocationResult{true, result, string(out), cpuUsage}
 		} else {
-			resp = &InvocationResult{true, result, ""}
+			resp = &InvocationResult{true, result, "", cpuUsage}
 		}
 	}
 

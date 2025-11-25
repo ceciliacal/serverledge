@@ -1,5 +1,5 @@
 api.port: 1328
-#container.pool.memory: 8192
+container.pool.memory: 8192
 scheduler.policy: localonly
 registry.area: "cloud_region_a"
 registry.udp.port: 9870

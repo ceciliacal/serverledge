@@ -72,8 +72,8 @@ type OptCarbonAwareParams struct {
 	NodeProcessingPowerConsumption float64 `json:"node_processing_power_consumption"`
 	NodeTxEnergyConsumption        float64 `json:"node_tx_energy_consumption"`
 	NodeRxEnergyConsumption        float64 `json:"node_rx_energy_consumption"`
-	UsableLocalMemoryCoeff         float64 `json:"usable_local_memory_coeff"`
-	Budget                         float64 `json:"budget"`
+	//UsableLocalMemoryCoeff         float64 `json:"usable_local_memory_coeff"`
+	Budget float64 `json:"budget"`
 
 	// Per-function & per-class
 	FunctionMemory         map[string]int64   `json:"function_memory"`           // f -> MB
@@ -613,6 +613,7 @@ func (policy *Co2QosAwarePolicy) optimizerLoop() {
 		policy.calculateArrivalRates()
 
 		params, err := policy.prepareOptimizerParams()
+
 		if err != nil {
 			log.Printf("Error preparing parameters, skipping optimization: %v", err)
 			continue
