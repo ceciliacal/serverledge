@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/serverledge-faas/serverledge/internal/emissions"
 	"github.com/serverledge-faas/serverledge/internal/externalprovider"
 	"github.com/serverledge-faas/serverledge/internal/externalprovider/lambda/utils"
 	"github.com/serverledge-faas/serverledge/internal/registration"
@@ -87,18 +86,21 @@ func Run(p Policy) {
 					}
 				} else {
 					metrics.AddCompletedInvocation(c.r.Fun.Name, !c.r.ExecutionReport.IsWarmStart)
+					metrics.AddCompletion(c.r.Fun.Name, c.r.ClassName, !c.r.ExecutionReport.IsWarmStart)
 
-					in := prepareEnergyInputs(c.r)
-					co2g := emissions.Compute(in)
+					co2g := computeEmissions(r)
 					metrics.AddFunctionCO2Emitted(c.r.Fun.Name, co2g)
 
 					if !c.r.offloaded {
 						metrics.AddFunctionDurationValue(c.r.Fun.Name, c.r.ExecutionReport.Duration)
-						metrics.AddFunctionDurationValueArea(c.r.Fun.Name, c.r.ExecutionReport.Duration) // NEW
+						metrics.AddFunctionDurationValueArea(c.r.Fun.Name, c.r.ExecutionReport.Duration)
+
+						metrics.AddFunctionCpuUsageValue(r.Fun.Name, c.r.ExecutionReport.CPUUsage)
+						metrics.AddFunctionCpuUsageValueArea(r.Fun.Name, c.r.ExecutionReport.CPUUsage)
 
 						if !c.r.ExecutionReport.IsWarmStart {
 							metrics.AddFunctionInitTimeValue(c.r.Fun.Name, c.r.ExecutionReport.InitTime)
-							metrics.AddFunctionInitTimeValueArea(c.r.Fun.Name, c.r.ExecutionReport.InitTime) // NEW
+							metrics.AddFunctionInitTimeValueArea(c.r.Fun.Name, c.r.ExecutionReport.InitTime)
 
 						}
 					}
@@ -244,7 +246,32 @@ func parseInitialProfile(s string) (tx float64, rx float64, mem float64, err err
 }
 
 func prepareInitialNodeEnergyProfile(r *scheduledRequest) {
-	if r.offloaded == false {
+
+	initialNodeTxEnergy := 0.0
+	initialNodeRxEnergy := 0.0
+	initialNodeMemory := float64(node.LocalResources.AvailableMemory())
+
+	if r.Params != nil { //it these params are present, r was offloaded
+		valTx, okTx := r.Params[InitialNodeTxEnergyKey].(float64)
+		if okTx {
+			initialNodeTxEnergy = valTx
+		}
+		valRx, okRx := r.Params[InitialNodeRxEnergyKey].(float64)
+		if okRx {
+			initialNodeRxEnergy = valRx
+		}
+		valMem, okMem := r.Params[InitialNodeMemoryKey].(float64)
+		if okMem {
+			initialNodeMemory = valMem
+		}
+	}
+	r.initialNodeTxEnergy = initialNodeTxEnergy
+	r.initialNodeRxEnergy = initialNodeRxEnergy
+	r.initialNodeMemory = initialNodeMemory
+}
+
+func prepareInitialNodeEnergyProfileOld(r *scheduledRequest) {
+	if r.offloaded == false { //todo: metti params con key value
 		//no initial node profile, cause the function has never been offloaded
 		r.initialNodeTxEnergy = 0.0
 		r.initialNodeRxEnergy = 0.0

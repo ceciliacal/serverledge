@@ -69,11 +69,16 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 	allAreas, _ := registration.ListAreas()
 	fmt.Print("=== regions: ", allAreas)
 
-	qosName, ok := getClassNameByID(r.Class)
+	qosClass, ok := getClassByID(r.Class)
+
+	if r.RequestQoS.ClassName == "" {
+		r.RequestQoS.ClassName = qosClass.Name
+	}
+
 	if !ok {
 		log.Printf("QoS class name not registered, plese add it, error: %v", r.Class)
 	}
-	key := r.Fun.Name + "|" + qosName
+	key := r.Fun.Name + "|" + qosClass.Name
 	policy.arrivalCountsMutex.Lock()
 	policy.arrivalCounts[key]++
 	policy.arrivalCountsMutex.Unlock()
@@ -167,8 +172,8 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 				// SWITCH TO THE VARIANT OF F
 				r.Fun = variantFun
 				containerID, warm, err := node.AcquireContainer(variantFun, false)
-				log.Printf("Policy: executing variant %q instead of base %q for request %s",
-					decision.variantName, r.Fun.Name, r.Id())
+				log.Printf("Policy: executing variant %q instead of base %q",
+					decision.variantName, r.Fun.Name)
 
 				if err == nil {
 					execLocally(r, containerID, warm)
@@ -364,14 +369,19 @@ func regionToRemoteHost(region string) string {
 	return ""
 }
 
+func computeEmissions(r *scheduledRequest) float64 {
+	in := prepareEnergyInputs(r)
+	return emissions.Compute(in)
+}
+
 func prepareEnergyInputs(r *scheduledRequest) emissions.Inputs {
 	return emissions.Inputs{
 		DurationSec:             r.ExecutionReport.Duration,
 		FunctionMemory:          float64(r.Fun.MemoryMB), //TODO: fixa unita misura
 		CurrentNodePowerCons:    node.LocalResources.ProcessingPower(),
 		CurrentNodeCO2Intensity: node.LocalResources.Co2Footprint.Intensity(),
-		InputSizeMean:           100.0, //todo: da fixare
-		OutputSizeMean:          10.0,
+		InputSizeMean:           r.Fun.AvgInputSize, //byte
+		OutputSizeMean:          r.Fun.AvgOutputSize,
 
 		InitialNodeTxEnergy:   r.initialNodeTxEnergy,
 		InitialNodeRxEnergy:   r.initialNodeRxEnergy,
@@ -380,5 +390,6 @@ func prepareEnergyInputs(r *scheduledRequest) emissions.Inputs {
 		// executor (this node)
 		LocalNodeRxEnergy: node.LocalResources.RxEnergyPerByte(),
 		LocalNodeTxEnergy: node.LocalResources.TxEnergyPerByte(),
+		CPUUsage:          r.ExecutionReport.CPUUsage,
 	}
 }

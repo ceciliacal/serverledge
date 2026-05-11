@@ -30,6 +30,8 @@ type Function struct {
 	DefaultFunction string
 	Utility         float64
 	ActiveVariant   *Function
+	AvgInputSize    float64
+	AvgOutputSize   float64
 }
 
 func HasVariants(f *Function) bool {

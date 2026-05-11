@@ -98,9 +98,9 @@ func InvokeHandler(w http.ResponseWriter, r *http.Request) {
 		result := readExecutionResult(resultFile)
 
 		if req.ReturnOutput {
-			resp = &InvocationResult{true, result, string(out), cpuUsage}
+			resp = &InvocationResult{Success: true, Result: result, Output: string(out), CPUUsage: cpuUsage}
 		} else {
-			resp = &InvocationResult{true, result, "", cpuUsage}
+			resp = &InvocationResult{Success: true, Result: result, Output: "", CPUUsage: cpuUsage}
 		}
 	}
 

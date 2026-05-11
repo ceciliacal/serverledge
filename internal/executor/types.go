@@ -10,8 +10,9 @@ type InvocationRequest struct {
 }
 
 type InvocationResult struct {
-	Success  bool
-	Result   string
-	Output   string
-	CPUUsage float64 // percentage of one core
+	Success          bool
+	Result           string
+	Output           string
+	CPUUsage         float64 // percentage of one core
+	IsDefaultVariant bool
 }

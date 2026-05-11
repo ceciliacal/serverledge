@@ -16,4 +16,5 @@ var RuntimeToInfo = map[string]RuntimeInfo{
 	"nodejs17ng":   {"grussorusso/serverledge-nodejs17ng", []string{}, false},
 	"my_python310": {"ceciliacal/my_python310", []string{"python3", "/executor.py"}, false},
 	"ml-py":        {"ceciliacal/ml-py", []string{"python3", "/executor.py"}, false},
+	"video-py":     {"ceciliacal/video-py", []string{"python3", "/executor.py"}, false},
 }

@@ -18,6 +18,7 @@ var Enabled bool
 var registry = prometheus.NewRegistry()
 var ScrapingHandler http.Handler = nil
 var durationBuckets = []float64{0.002, 0.005, 0.010, 0.02, 0.03, 0.05, 0.1, 0.15, 0.3, 0.6, 1.0}
+var cpuUsageBuckets = []float64{0.1, 0.25, 0.5, 0.75, 1.0}
 
 const (
 	COMPLETIONS              = "completed_count"
@@ -32,6 +33,8 @@ const (
 	CO2_EMITTED_GRAMS_TOTAL  = "co2_emitted_grams_total"
 	COMPLETIONS_NODE         = "completed_node_count"
 	COLD_STARTS_NODE         = "cold_starts_node_count"
+	CPU_USAGE                = "cpu_usage"
+	CPU_USAGE_AREA           = "cpu_usage_by_area"
 )
 
 var (
@@ -84,12 +87,23 @@ var (
 	metricCompletionsNode = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: COMPLETIONS_NODE,
 		Help: "Number of completed function invocations per node",
-	}, []string{"node", "function"})
+	}, []string{"node", "function", "class"})
 
 	metricColdStartsNode = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: COLD_STARTS_NODE,
 		Help: "Number of cold starts per function and node",
+	}, []string{"node", "function", "class"})
+	metricCPUUsage = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    CPU_USAGE,
+		Help:    "CPU usage (fraction of a core) during function execution",
+		Buckets: cpuUsageBuckets,
 	}, []string{"node", "function"})
+
+	metricCPUUsageByArea = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    CPU_USAGE_AREA,
+		Help:    "CPU usage (fraction of a core) during function execution (area-labelled)",
+		Buckets: cpuUsageBuckets,
+	}, []string{"area", "node", "function"})
 )
 
 type RetrievedMetrics struct {
@@ -110,6 +124,8 @@ type RetrievedMetrics struct {
 	AvgCloudRegionExecutionTime     map[string]map[string]float64
 	AvgCloudRegionInitTime          map[string]map[string]float64
 	EdgeColdStartProbabilityByNode  map[string]map[string]float64 // node -> function -> pCold
+	AvgEdgeCPUUsage                 map[string]map[string]float64 // node -> function -> avg cpu
+	AvgCloudRegionCPUUsage          map[string]map[string]float64 // area -> function -> avg cpu
 
 }
 
@@ -173,6 +189,9 @@ func Init() {
 	registry.MustRegister(metricCompletionsNode)
 	registry.MustRegister(metricColdStartsNode)
 
+	registry.MustRegister(metricCPUUsage)
+	registry.MustRegister(metricCPUUsageByArea)
+
 	ScrapingHandler = promhttp.HandlerFor(registry, promhttp.HandlerOpts{
 		EnableOpenMetrics: true})
 
@@ -186,14 +205,31 @@ func AddCompletedInvocation(funcName string, coldStart bool) {
 	if coldStart {
 		metricColdStarts.With(prometheus.Labels{"function": funcName, "area": node.LocalNode.Area}).Inc()
 	}
+}
 
-	// +++ NEW: per-node counters +++
+func AddCompletion(funcName string, className string, coldStart bool) {
+	if className == "" {
+		return
+	}
+	log.Printf("[METRICS] New Completion area=%s node=%s function=%s class=%s coldStart=%t",
+		node.LocalNode.Area, node.LocalNode.String(), funcName, className, coldStart)
+
+	// per-node, per-class counters
 	n := node.LocalNode.String()
-	metricCompletionsNode.With(prometheus.Labels{"function": funcName, "node": n}).Inc()
+	metricCompletionsNode.With(prometheus.Labels{
+		"function": funcName,
+		"node":     n,
+		"class":    className,
+	}).Inc()
 	if coldStart {
-		metricColdStartsNode.With(prometheus.Labels{"function": funcName, "node": n}).Inc()
+		metricColdStartsNode.With(prometheus.Labels{
+			"function": funcName,
+			"node":     n,
+			"class":    className,
+		}).Inc()
 	}
 }
+
 func AddFunctionDurationValue(funcName string, duration float64) {
 	log.Printf("[METRICS] FunctionDuration node=%s function=%s duration=%.6f",
 		node.LocalNode.String(), funcName, duration)
@@ -239,6 +275,28 @@ func AddRemoteCompletedInvocation(funcName string, nodeLabel string, coldStart b
 	if coldStart {
 		metricColdStarts.With(prometheus.Labels{"function": funcName, "area": nodeLabel}).Inc()
 	}
+}
+
+func AddFunctionCpuUsageValue(funcName string, cpuUsage float64) {
+	log.Printf("[METRICS] FunctionCpuUsage node=%s function=%s cpuUsage=%.6f",
+		node.LocalNode.String(), funcName, cpuUsage)
+
+	metricCPUUsage.With(prometheus.Labels{
+		"function": funcName,
+		"node":     node.LocalNode.String(),
+	}).Observe(cpuUsage)
+}
+
+// BY AREA
+func AddFunctionCpuUsageValueArea(funcName string, cpuUsage float64) {
+	log.Printf("[METRICS] FunctionCpuUsageArea node=%s area=%s function=%s cpuUsage=%.6f",
+		node.LocalNode.String(), node.LocalNode.Area, funcName, cpuUsage)
+
+	metricCPUUsageByArea.With(prometheus.Labels{
+		"function": funcName,
+		"node":     node.LocalNode.String(),
+		"area":     node.LocalNode.Area,
+	}).Observe(cpuUsage)
 }
 
 // BY AREA

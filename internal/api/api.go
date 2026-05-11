@@ -47,7 +47,6 @@ func GetFunctions(c echo.Context) error {
 	return c.JSON(http.StatusOK, list)
 }
 
-// todo: aggiungere "c" per classe?
 // InvokeFunction handles a function invocation request.
 func InvokeFunction(c echo.Context) error {
 	funcName := c.Param("fun")
@@ -70,6 +69,7 @@ func InvokeFunction(c echo.Context) error {
 	r.Params = invocationRequest.Params
 	r.Arrival = time.Now()
 	r.MaxRespT = invocationRequest.QoSMaxRespT
+	r.Class = invocationRequest.QoSClass // map CLI -c into RequestQoS.Class
 	r.CanDoOffloading = invocationRequest.CanDoOffloading
 	r.Async = invocationRequest.Async
 	r.ReturnOutput = invocationRequest.ReturnOutput

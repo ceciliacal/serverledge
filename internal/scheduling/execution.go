@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	//"github.com/serverledge-faas/serverledge/internal/config"
 	"github.com/serverledge-faas/serverledge/internal/container"
 	"github.com/serverledge-faas/serverledge/internal/executor"
 )
@@ -66,6 +67,9 @@ func Execute(cont *container.Container, r *scheduledRequest, isWarm bool) error 
 	r.InitTime = initTime + invocationWait.Seconds()
 
 	r.CPUUsage = response.CPUUsage
+	r.IsDefaultVariant = r.Fun.IsDefault
+	co2g := computeEmissions(r) //todo: è il punto giusto?
+	r.CO2EmittedGrams = co2g
 
 	// notify scheduler
 	completions <- &completionNotification{r: r, cont: cont, failed: false}

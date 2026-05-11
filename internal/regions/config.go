@@ -93,7 +93,7 @@ func PollInterval() time.Duration {
 //	[0]=avg mem (bytes, LB) [1]=CO2 (LB)
 //	[2]=proc power W (static) [3]=tx J/B (static)
 //	[4]=rx J/B (static)       [5]=cost (static)
-func BuildCloudRegionsAndDecisionsEnriched(
+func BuildCloudRegionsAndDecisions(
 	cloudRegionsWithLB map[string]AreaInfo,
 	fetch func(area string) (AreaStat, error)) ([]string, map[string][]float64) {
 	decisions := []string{"EXEC", "OFFLOAD_EDGE", "DROP"}
@@ -115,7 +115,7 @@ func BuildCloudRegionsAndDecisionsEnriched(
 		// start from static defaults
 		vec := make([]float64, 6)
 
-		// optionally enrich from LB stats
+		// from LB stats
 		if fetch != nil {
 			if st, err := fetch(areaName); err == nil {
 				vec[0] = st.AvgAvailableMem

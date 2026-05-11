@@ -1,6 +1,6 @@
 package emissions
 
-const MU = 2048.0 //m_u
+const MU = 2048.0 //m_u (MB)
 
 // Inputs contains everything needed to compute CO2 for one invocation
 type Inputs struct {
@@ -15,19 +15,20 @@ type Inputs struct {
 	LocalNodeRxEnergy       float64
 	LocalNodeTxEnergy       float64
 	AggrInitialNodeMemory   float64
+	CPUUsage                float64
 }
 
 // Compute returns emitted grams of CO2 for the given inputs
 func Compute(in Inputs) float64 {
-	if in.InitialNodeTxEnergy == 0 && in.InitialNodeRxEnergy == 0 {
-		energyTerm := in.CurrentNodePowerCons * (in.FunctionMemory / MU) * in.DurationSec
+	if in.InitialNodeTxEnergy == 0.0 && in.InitialNodeRxEnergy == 0.0 {
+		energyTerm := in.CurrentNodePowerCons * (in.FunctionMemory / MU) * in.DurationSec * in.CPUUsage
 		return (energyTerm / (3600.0 * 1000.0)) * in.CurrentNodeCO2Intensity
 	}
-	if in.AggrInitialNodeMemory <= 0 {
-		return 0
+	if in.AggrInitialNodeMemory <= 0.0 {
+		return 0.0
 	} else {
 		energyTerm :=
-			(in.CurrentNodePowerCons * (in.FunctionMemory / MU) * in.DurationSec) +
+			(in.CurrentNodePowerCons * (in.FunctionMemory / MU) * in.DurationSec * in.CPUUsage) +
 				in.InputSizeMean*(in.LocalNodeTxEnergy+in.InitialNodeRxEnergy) +
 				in.OutputSizeMean*(in.InitialNodeTxEnergy+in.LocalNodeRxEnergy)
 

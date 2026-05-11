@@ -5,54 +5,53 @@ import requests
 import tensorflow as tf
 from tensorflow import keras
 
-modelR50 = keras.applications.resnet50.ResNet50(weights="imagenet")
-modelR152 = keras.applications.ResNet152(weights="imagenet")
 modelMob = keras.applications.MobileNetV2(weights="imagenet")
 
+def load_and_preprocess_image_from_bytes(img_bytes: bytes) -> tf.Tensor:
+    img = tf.io.decode_image(img_bytes, channels=3, expand_animations=False)
+    img = tf.image.resize(img, (224, 224))
+    img = tf.cast(img, tf.float32)
+    return img[None, ...]
 
-def predictResNet50(input_img):
-    image = imageio.imread(input_img)
-    resized = tf.image.resize([image], (224, 224))
-    inputs = keras.applications.resnet.preprocess_input(resized)
-    return modelR50.predict(inputs)
-
-
-def predictResNet152(input_img):
-    image = imageio.imread(input_img)
-    resized = tf.image.resize([image], (224, 224))
-    inputs = keras.applications.resnet.preprocess_input(resized)
-    return modelR152.predict(inputs)
-
-
-def predictMobileNet(input_img):
-    image = imageio.imread(input_img)
-    resized = tf.image.resize([image], (224, 224))
-    inputs = keras.applications.mobilenet.preprocess_input(resized)
+def predictMobileNet(image_batch: tf.Tensor) -> np.ndarray:
+    inputs = mobilenet_v2.preprocess_input(tf.identity(image_batch))
     return modelMob.predict(inputs)
 
 
-def prob2class(Y):
-    top_K = keras.applications.resnet50.decode_predictions(Y, top=1)
-    for class_id, name, y_proba in top_K[0]:
-        return name
+def prob2class(Y: np.ndarray) -> str:
+    top_K = resnet50.decode_predictions(Y, top=1)
+    class_id, name, y_proba = top_K[0][0]
+    return name
 
 
 def handler(params, context):
 
-    #image_url = params["imgurl"]
-    image_url = "https://upload.wikimedia.org/wikipedia/commons/d/de/Nokota_Horses_cropped.jpg"
+    # Allow overriding the URL via params; fallback to your horse image
+    default_url = "https://upload.wikimedia.org/wikipedia/commons/d/de/Nokota_Horses_cropped.jpg"
+    if isinstance(params, dict) and "image_url" in params:
+        image_url = params["image_url"]
+    else:
+        image_url = default_url
 
-    print("Downloading: " + image_url)
-    r = requests.get(image_url)
-    with tempfile.NamedTemporaryFile() as of:
-        of.write(r.content)
-        of.flush()
-        input_file = of.name
+    print("Downloading:", image_url, flush=True)
+    headers = {
+        "User-Agent": "Serverledge-ML/1.0 (https://example.com)"
+    }
 
-        y = predictMobileNet(input_file)
+    try:
+        resp = requests.get(image_url, headers=headers, timeout=15)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Error downloading {image_url}: {e}", flush=True)
+        return {"Class": None, "Error": f"download_failed: {e}"}
 
-        prediction = prob2class(y)
-        return {"Class": prediction}
+
+    # Load and preprocess once, reuse for all three models
+    image_batch = load_and_preprocess_image_from_bytes(resp.content)
+
+    y = predictMobileNet(image_batch)
+    prediction = prob2class(y)
+    return {"Class": prediction}
 
 
 

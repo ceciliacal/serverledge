@@ -41,11 +41,14 @@ type OptCarbonAwareParams struct {
 	ServTimeLocal   map[string]float64 `json:"serv_time_local"`    // f -> seconds
 	InitTimeLocal   map[string]float64 `json:"init_time_local"`    // f -> seconds
 	ColdStartPLocal map[string]float64 `json:"cold_start_p_local"` // f -> seconds
+	CpuUsageLocal   map[string]float64 `json:"cpu_usage_local"`    // f -> seconds
 
 	// --- Flattened [region][function] -> value ---
 	ServTimeCloud   map[string]map[string]float64 `json:"serv_time_cloud"`
 	InitTimeCloud   map[string]map[string]float64 `json:"init_time_cloud"`
 	ColdStartPCloud map[string]map[string]float64 `json:"cold_start_p_cloud"`
+	CpuUsageCloud   map[string]map[string]float64 `json:"cpu_usage_cloud"`
+
 	// Region-only maps
 	OffloadTimeCloud map[string]float64 `json:"offload_time_cloud"` // region -> RTT seconds
 	BandwidthCloud   map[string]float64 `json:"bandwidth_cloud"`    // region -> bytes/sec
@@ -55,6 +58,7 @@ type OptCarbonAwareParams struct {
 	ServTimeEdge         map[string]float64 `json:"serv_time_edge"`    // f -> seconds
 	ColdStartPEdge       map[string]float64 `json:"cold_start_p_edge"` // f -> probability
 	InitTimeEdge         map[string]float64 `json:"init_time_edge"`    // f -> seconds
+	CpuUsageEdge         map[string]float64 `json:"cpu_usage_edge"`    // f -> seconds
 	BandwidthEdge        float64            `json:"bandwidth_edge"`    // bytes/sec
 	OffloadTimeEdge      float64            `json:"offload_time_edge"` // seconds
 
@@ -72,7 +76,7 @@ type OptCarbonAwareParams struct {
 	NodeProcessingPowerConsumption float64 `json:"node_processing_power_consumption"`
 	NodeTxEnergyConsumption        float64 `json:"node_tx_energy_consumption"`
 	NodeRxEnergyConsumption        float64 `json:"node_rx_energy_consumption"`
-	//UsableLocalMemoryCoeff         float64 `json:"usable_local_memory_coeff"`
+
 	Budget float64 `json:"budget"`
 
 	// Per-function & per-class
@@ -101,10 +105,12 @@ func initOptCarbonAwareParams() OptCarbonAwareParams {
 		ServTimeCloud:   make(map[string]map[string]float64),
 		InitTimeCloud:   make(map[string]map[string]float64),
 		ColdStartPCloud: make(map[string]map[string]float64),
+		CpuUsageCloud:   make(map[string]map[string]float64),
 		// Local  (per function)
 		InitTimeLocal:   make(map[string]float64),
 		ServTimeLocal:   make(map[string]float64),
 		ColdStartPLocal: make(map[string]float64),
+		CpuUsageLocal:   make(map[string]float64),
 		// Region-only maps
 		OffloadTimeCloud: make(map[string]float64),
 		BandwidthCloud:   make(map[string]float64),
@@ -112,6 +118,7 @@ func initOptCarbonAwareParams() OptCarbonAwareParams {
 		ServTimeEdge:   make(map[string]float64),
 		ColdStartPEdge: make(map[string]float64),
 		InitTimeEdge:   make(map[string]float64),
+		CpuUsageEdge:   make(map[string]float64),
 		// Per-class
 		ClassMaxRt:           make(map[string]float64),
 		ClassUtility:         make(map[string]float64),
@@ -252,7 +259,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 
 	// Build baseline decisions (EXEC, OFFLOAD_EDGE, DROP, OFFLOAD_CLOUD_*)
 	params.PossibleDecisions, params.CloudRegions =
-		regions.BuildCloudRegionsAndDecisionsEnriched(registration.CloudRegions, fetchAreaStat)
+		regions.BuildCloudRegionsAndDecisions(registration.CloudRegions, fetchAreaStat)
 
 	for _, lb := range loadBalancers {
 		latSec, err := registration.GetTcpLatencySec(lb.IPAddress, lb.APIPort)
@@ -273,6 +280,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 	}
 
 	retrievedMetrics := metrics.GetMetrics()
+	//todo: continua qui
 
 	for _, functionName := range functionNames {
 		realFunc, ok := function.GetFunction(functionName)
@@ -286,12 +294,14 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		if size, ok := retrievedMetrics.AvgInputSize[functionName]; ok && size > 0 {
 			avgInputSize = size
 		}
+		realFunc.AvgInputSize = avgInputSize
 
 		// Avg output size
 		var avgOutputSize = 10.0
 		if outputSize, ok := retrievedMetrics.AvgOutputSize[functionName]; ok && outputSize > 0 {
 			avgOutputSize = outputSize
 		}
+		realFunc.AvgOutputSize = avgOutputSize
 
 		// Basic function info
 		params.Functions = append(params.Functions, functionName)
@@ -318,6 +328,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		execTimesEdge := make(map[string]float64) //[node]=float
 		initTimesEdge := make(map[string]float64)
 		coldStartsEdge := make(map[string]float64)
+		cpuUsageEdge := make(map[string]float64)
 
 		for _, n := range edgeNodes {
 			nId := node.NodeID{Area: registration.SelfRegistration.Area, Key: n}
@@ -345,27 +356,43 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 					pCold = v
 				}
 			}
+
+			cpuUsage := 100.0
+			if avgCpu, ok := retrievedMetrics.AvgEdgeCPUUsage[nId.String()]; ok {
+				if u, ok2 := avgCpu[functionName]; ok2 {
+					cpuUsage = u
+				}
+			}
+
+			if !realFunc.IsDefault {
+				execTime = execTime * (1 / realFunc.SpeedUp)
+			}
+
 			if n == LOCAL {
 				// Fill LOCAL maps
 				params.ServTimeLocal[functionName] = execTime
 				params.ColdStartPLocal[functionName] = pCold
 				params.InitTimeLocal[functionName] = avgInit
+				params.CpuUsageLocal[functionName] = cpuUsage
+
 			} else {
 				execTimesEdge[n] = execTime
 				initTimesEdge[n] = avgInit
 				coldStartsEdge[n] = pCold
+				cpuUsageEdge[n] = cpuUsage
 			}
 		}
 
 		avgEdgeExecTimes := avgMap(execTimesEdge)
 		avgEdgeInitTimes := avgMap(initTimesEdge)
 		avgColdStartsEdge := avgMap(coldStartsEdge)
+		avgCpuUsageEdge := avgMap(cpuUsageEdge)
 		params.ServTimeEdge[functionName] = avgEdgeExecTimes
 		params.InitTimeEdge[functionName] = avgEdgeInitTimes
 		params.ColdStartPEdge[functionName] = avgColdStartsEdge
-		params.BandwidthEdge = 0.0050
+		params.CpuUsageEdge[functionName] = avgCpuUsageEdge
 
-		//todo: if node_count in resp GET da LB == 0, salta questa parte
+		params.BandwidthEdge = 0.0050
 
 		for areaName := range registration.CloudRegions { // map[string]regions.AreaInfo
 
@@ -379,8 +406,11 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 			if _, ok := params.InitTimeCloud[areaName]; !ok {
 				params.InitTimeCloud[areaName] = make(map[string]float64)
 			}
+			if _, ok := params.CpuUsageCloud[areaName]; !ok {
+				params.CpuUsageCloud[areaName] = make(map[string]float64)
+			}
 
-			// Exec time (default 0.01)
+			// Exec time
 			exec := 0.01
 			if m, ok := retrievedMetrics.AvgCloudRegionExecutionTime[areaName]; ok {
 				if v, ok := m[functionName]; ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
@@ -389,7 +419,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 			}
 			params.ServTimeCloud[areaName][functionName] = exec
 
-			// Cold-start prob (default 1.0)
+			// Cold-start prob
 			pCold := 1.0
 			if m, ok := retrievedMetrics.CloudRegionColdStartProbability[areaName]; ok {
 				if v, ok := m[functionName]; ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
@@ -398,14 +428,25 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 			}
 			params.ColdStartPCloud[areaName][functionName] = pCold
 
-			// Init time (default 0.1)
+			// Init time
 			initAvg := 0.1
 			if m, ok := retrievedMetrics.AvgCloudRegionInitTime[areaName]; ok {
 				if v, ok := m[functionName]; ok && !math.IsNaN(v) && !math.IsInf(v, 0) {
 					initAvg = v
 				}
 			}
+
+			// Cpu Usage
+			cpuUsage := 100.0
+			if avgCpu, ok := retrievedMetrics.AvgCloudRegionCPUUsage[areaName]; ok {
+				if u, ok := avgCpu[functionName]; ok && !math.IsNaN(u) && !math.IsInf(u, 0) {
+					cpuUsage = u
+				}
+			}
+			params.ServTimeCloud[areaName][functionName] = exec
 			params.InitTimeCloud[areaName][functionName] = initAvg
+			params.CpuUsageCloud[areaName][functionName] = cpuUsage
+
 			params.BandwidthCloud[areaName] = 10000.0
 		}
 	}
@@ -569,9 +610,9 @@ func getQosClasses() []QoSClass {
 	return classes
 }
 
-func getClassNameByID(id int64) (string, bool) {
+func getClassByID(id int64) (QoSClass, bool) {
 	class, found := qosClasses[id]
-	return class.Name, found
+	return class, found
 }
 
 // Qos Class yaml parsing

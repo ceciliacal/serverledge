@@ -19,20 +19,24 @@ type Request struct {
 }
 
 type RequestQoS struct {
-	Class    int64
-	MaxRespT float64
+	Class     int64
+	MaxRespT  float64
+	ClassName string
+	Utility   float64
 }
 
 type ExecutionReport struct {
-	Result         string
-	ResponseTime   float64 // time waited by the user to get the output: completion time - arrival time
-	IsWarmStart    bool
-	InitTime       float64 // time spent sleeping before initializing container
-	QueueingTime   float64 // time spent waiting in the queue
-	OffloadLatency float64 // time spent offloading the request
-	Duration       float64 // execution (service) time
-	Output         string
-	CPUUsage       float64
+	Result           string
+	ResponseTime     float64 // time waited by the user to get the output: completion time - arrival time
+	IsWarmStart      bool
+	InitTime         float64 // time spent sleeping before initializing container
+	QueueingTime     float64 // time spent waiting in the queue
+	OffloadLatency   float64 // time spent offloading the request
+	Duration         float64 // execution (service) time
+	Output           string
+	CPUUsage         float64
+	IsDefaultVariant bool
+	CO2EmittedGrams  float64
 }
 
 type Response struct {

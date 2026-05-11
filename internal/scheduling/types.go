@@ -14,9 +14,10 @@ type scheduledRequest struct {
 	decisionChannel    chan schedDecision
 
 	// For gCO2 calculation after execution: initial (origin) node profile
-	initialNodeTxEnergy float64 // energy per KB/byte (your unit)
-	initialNodeRxEnergy float64 // energy per KB/byte
-	initialNodeMemory   float64 // aggregate memory on initial node
+	initialNodeTxEnergy float64
+	initialNodeRxEnergy float64
+	initialNodeMemory   float64
+	QoSClass
 }
 
 type completionNotification struct {

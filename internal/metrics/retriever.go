@@ -211,6 +211,15 @@ func MetricsRetriever() {
 			}
 			retrievedMetrics.AvgEdgeInitTime = avgInitTimeAllNodes
 
+			// CPU usage on Edge peers
+			query = fmt.Sprintf("%s_sum{node=~\"\\\\(%s\\\\).*\"}/%s_count{node=~\"\\\\(%s\\\\).*\"}",
+				CPU_USAGE, localArea, CPU_USAGE, localArea)
+			avgCPUAllNodes, err := retrieveByFunctionAndNode(query, api, ctx)
+			if err != nil {
+				log.Printf("Error in retrieveByFunctionAndNode (CPU usage): %v", err)
+			}
+			retrievedMetrics.AvgEdgeCPUUsage = avgCPUAllNodes
+
 			//Probability Cold Start Edge
 			query = fmt.Sprintf("%s{area=\"%s\"}/%s{area=\"%s\"}",
 				COLD_STARTS, localArea, COMPLETIONS, localArea)
@@ -265,6 +274,7 @@ func MetricsRetriever() {
 			}
 
 			//CLOUR REGION (cloud region = area with LB!)
+			//todo: CONTROLLA CHE NODI CLOUD SCRIVANO EFFETTIVAMENTE QUI!!!! X POLICY CHE NN È CO2QOSAWARE
 			policyConf := config.GetString(config.SCHEDULING_POLICY, "default")
 			if policyConf == "co2qosaware" {
 
@@ -292,6 +302,12 @@ func MetricsRetriever() {
 					if _, ok := retrievedMetrics.AvgCloudRegionInitTime[areaName]; !ok {
 						retrievedMetrics.AvgCloudRegionInitTime[areaName] = make(map[string]float64)
 					}
+					if retrievedMetrics.AvgCloudRegionCPUUsage == nil {
+						retrievedMetrics.AvgCloudRegionCPUUsage = make(map[string]map[string]float64)
+					}
+					if _, ok := retrievedMetrics.AvgCloudRegionCPUUsage[areaName]; !ok {
+						retrievedMetrics.AvgCloudRegionCPUUsage[areaName] = make(map[string]float64)
+					}
 
 					// === 1) p(cold start) per function in this area ===
 					// Uses counters that already have labels: area,function
@@ -311,10 +327,8 @@ func MetricsRetriever() {
 					// === 2) Avg execution time per function (simple mean across nodes) ===
 					// Mean of node means: avg over nodes of (sum/count) at node granularity
 					query = fmt.Sprintf(
-						`avg by (function) (
-                (sum by (function, node) (%s_sum{node=~"\\(%s\\).*"}))
-              / (sum by (function, node) (%s_count{node=~"\\(%s\\).*"}))
-             )`,
+						`avg by (function) ((sum by (function, node) (%s_sum{node=~"\\(%s\\).*"}))
+              					/ (sum by (function, node) (%s_count{node=~"\\(%s\\).*"})))`,
 						EXECUTION_TIME, areaName, EXECUTION_TIME, areaName,
 					)
 					avgFunDuration, err := retrieveByFunction(query, api, ctx)
@@ -328,10 +342,8 @@ func MetricsRetriever() {
 
 					// === 3) Avg init time per function (simple mean across nodes) ===
 					query = fmt.Sprintf(
-						`avg by (function) (
-                (sum by (function, node) (%s_sum{node=~"\\(%s\\).*"}))
-              / (sum by (function, node) (%s_count{node=~"\\(%s\\).*"}))
-             )`,
+						`avg by (function) ((sum by (function, node) (%s_sum{node=~"\\(%s\\).*"}))
+              					/ (sum by (function, node) (%s_count{node=~"\\(%s\\).*"})))`,
 						INITIALIZATION_TIME, areaName, INITIALIZATION_TIME, areaName,
 					)
 					avgInitTime, err := retrieveByFunction(query, api, ctx)
@@ -341,6 +353,21 @@ func MetricsRetriever() {
 					}
 					for fn, v := range avgInitTime {
 						retrievedMetrics.AvgCloudRegionInitTime[areaName][fn] = v
+					}
+
+					// === 4) Avg CPU usage per function (simple mean across nodes) ===
+					query = fmt.Sprintf(
+						`avg by (function) ((sum by (function, node) (%s_sum{node=~"\\(%s\\).*"}))
+      							/ (sum by (function, node) (%s_count{node=~"\\(%s\\).*"})))`,
+						CPU_USAGE, areaName, CPU_USAGE, areaName,
+					)
+					avgCPUUsage, err := retrieveByFunction(query, api, ctx)
+					if err != nil {
+						log.Printf("Error retrieving cloud-region CPU usage for %s: %v", areaName, err)
+						avgCPUUsage = map[string]float64{}
+					}
+					for fn, v := range avgCPUUsage {
+						retrievedMetrics.AvgCloudRegionCPUUsage[areaName][fn] = v
 					}
 				} // end for cloud regions
 			} //todo: rate over a window?

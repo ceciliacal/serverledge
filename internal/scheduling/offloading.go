@@ -32,7 +32,13 @@ func pickEdgeNodeForOffloading(r *scheduledRequest) (url string) {
 	return randomItem.APIUrl()
 }
 
-const metaProfile = "__sl_initial_profile"
+const metaProfile = "initial_node_profile"
+
+const (
+	InitialNodeTxEnergyKey = "initialNodeTxEnergy"
+	InitialNodeRxEnergyKey = "initialNodeRxEnergy"
+	InitialNodeMemoryKey   = "initialNodeMemory"
+)
 
 func Offload(r *scheduledRequest, serverUrl string) error {
 
@@ -43,16 +49,17 @@ func Offload(r *scheduledRequest, serverUrl string) error {
 		r.Params = map[string]any{}
 	}
 
-	// Only set if not already present (preserve if upstream set it)
-	if _, ok := r.Params[metaProfile]; !ok {
-		// Get the origin's profile (this node)
-		tx := node.LocalResources.TxEnergyPerByte()
-		rx := node.LocalResources.RxEnergyPerByte()
-		mem := float64(node.LocalResources.AvailableMemory())
+	// Initial node (offloading sender) data useful for energy consumption calculation
+	if _, ok := r.Params[InitialNodeTxEnergyKey]; !ok {
+		r.Params[InitialNodeTxEnergyKey] = node.LocalResources.TxEnergyPerByte()
+	}
 
-		// Encode: "<tx>;<rx>;<memory>"
-		profile := fmt.Sprintf("%.9g;%.9g;%.9g", tx, rx, mem)
-		r.Params[metaProfile] = profile
+	if _, ok := r.Params[InitialNodeRxEnergyKey]; !ok {
+		r.Params[InitialNodeRxEnergyKey] = node.LocalResources.RxEnergyPerByte()
+	}
+
+	if _, ok := r.Params[InitialNodeMemoryKey]; !ok {
+		r.Params[InitialNodeMemoryKey] = float64(node.LocalResources.AvailableMemory())
 	}
 
 	// Prepare request
@@ -101,7 +108,7 @@ func Offload(r *scheduledRequest, serverUrl string) error {
 	r.ExecutionReport = &response.ExecutionReport // switching execution report
 	r.ResponseTime = now.Sub(originalArrivalTime).Seconds()
 	r.OffloadLatency = now.Sub(sendingTime).Seconds() - r.Duration - r.InitTime
-	r.offloaded = true
+	r.offloaded = true //questo c'è dopo che è stato fatto invoke a nodo remoto nn prima
 
 	return nil
 }

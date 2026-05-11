@@ -50,9 +50,9 @@ func (n *Resources) Init() {
 	n.totalMemory = int64(config.GetInt(config.POOL_MEMORY_MB, 1024))
 	n.containerPools = make(map[string]*ContainerPool)
 
-	n.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 400.0)
-	n.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 100.0) / 1e9
-	n.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 100.0) / 1e9
+	n.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 0.0)
+	n.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 0.0) / 1e9
+	n.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 0.0) / 1e9
 }
 
 func (n *Resources) String() string {
