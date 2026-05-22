@@ -460,10 +460,11 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		}
 	}
 
-	// As an extra safety, treat any function with IsDefault == false as a variant,
-	// in case for some reason it wasn't added to params.Variants.
+	// As an extra safety, treat functions with a parent DefaultFunction as variants,
+	// in case for some reason they were not added to params.Variants. Do not rely on
+	// IsDefault alone: its zero value is false for older/normal registrations too.
 	for _, fname := range params.Functions {
-		if f, ok := function.GetFunction(fname); ok && f != nil && !f.IsDefault {
+		if f, ok := function.GetFunction(fname); ok && isFunctionVariant(f) {
 			variantNames[fname] = struct{}{}
 		}
 	}
@@ -529,6 +530,10 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 	//todo: bandwidth(va letta da conf)
 
 	return params, nil
+}
+
+func isFunctionVariant(f *function.Function) bool {
+	return f != nil && !f.IsDefault && f.DefaultFunction != ""
 }
 
 func fetchAreaStat(area string) (regions.AreaStat, error) {

@@ -88,7 +88,7 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 		log.Printf("Error calling Evaluate request: %v. Dropping it...", err)
 		dropRequest(r)
 	}
-	log.Printf("decision: ", decision)
+	log.Printf("decision: %v", decision)
 
 	var actionChoice string
 	if decision.action == 0 {
@@ -139,7 +139,7 @@ func (policy *Co2QosAwarePolicy) OnArrival(r *scheduledRequest) {
 
 	} else if decision.action == 2 && decision.remoteHost != edgeUrl { //cloud region
 		if decision.remoteHost == "" {
-			log.Printf("No LB configured for cloud region in ", decision.regionName, ", dropping request...")
+			log.Printf("No LB configured for cloud region in %s, dropping request...", decision.regionName)
 			dropRequest(r)
 			return
 		}
@@ -354,15 +354,15 @@ func pickVariant(m map[string]float64) (string, bool) {
 // return LB url of the input region
 func regionToRemoteHost(region string) string {
 	if ai, ok := registration.CloudRegions[region]; ok && ai.LoadBalancerNode.Key != "" {
-		log.Printf("ai.LoadBalancerNode.Key ", ai.LoadBalancerNode.Key)
-		log.Printf("registration.GetPeerFromKey(ai.LoadBalancerNode.Key)", registration.GetPeerFromKey(ai.LoadBalancerNode.Key))
+		log.Printf("ai.LoadBalancerNode.Key %s", ai.LoadBalancerNode.Key)
+		log.Printf("registration.GetPeerFromKey(ai.LoadBalancerNode.Key) %v", registration.GetPeerFromKey(ai.LoadBalancerNode.Key))
 
 		lb, err := registration.GetLBByKey(region, ai.LoadBalancerNode.Key)
 		if err != nil {
 			log.Printf("LB lookup failed for area=%s key=%s: %v", region, ai.LoadBalancerNode.Key, err)
 			return ""
 		}
-		log.Printf("===region to remote host: ", lb.APIUrl())
+		log.Printf("===region to remote host: %s", lb.APIUrl())
 
 		return lb.APIUrl()
 	}
