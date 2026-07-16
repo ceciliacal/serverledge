@@ -6,3 +6,4 @@ images/*/executor
 *.backup
 default.etcd
 /internal/externalprovider/lambda/aws/
+.venv
