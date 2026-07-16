@@ -213,7 +213,7 @@ func (policy *Co2QosAwarePolicy) evaluate(r *scheduledRequest, cacheKey string) 
 		}
 
 		// If this function has variants, give some of the local mass to variants
-		if function.HasVariants(r.Fun) {
+		if policy.Config.VariantsEnabled && function.HasVariants(r.Fun) {
 			// Example: split the 0.25 local mass between base and variants
 			probs.PLocal = 0.125
 			probs.PLocalVar = 0.125
@@ -232,6 +232,11 @@ func (policy *Co2QosAwarePolicy) evaluate(r *scheduledRequest, cacheKey string) 
 	var variantProbs map[string]float64
 	if v, ok := policy.variantProbCache.Load(cacheKey); ok {
 		variantProbs = v.(map[string]float64)
+	}
+
+	if !policy.Config.VariantsEnabled {
+		probs.PLocalVar = 0.0
+		variantProbs = nil
 	}
 
 	// If local cannot run it, zero local probability

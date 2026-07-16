@@ -140,14 +140,18 @@ type QoSClass struct {
 var qosClasses = make(map[int64]QoSClass)
 
 type Co2QosPolicyConfig struct {
-	ArrivalRate       float64 `yaml:"policy.arrival.rate.alpha" json:"policy.arrival.rate.alpha"`
-	UpdateIntervalSec int     `yaml:"policy.update.interval" json:"policy.update.interval"`
-	Budget            float64 `yaml:"budget"`
-	Alpha             float64 `yaml:"policy.alpha"`
-	Beta              float64 `yaml:"policy.beta"`
-	OptHost           string  `yaml:"optimizer.host"`
-	OptPort           int     `yaml:"optimizer.port"`
-	CO2GreenThreshold float64 `yaml:"policy.threshold.greenness"`
+	ArrivalRate                      float64 `yaml:"policy.arrival.rate.alpha" json:"policy.arrival.rate.alpha"`
+	UpdateIntervalSec                int     `yaml:"policy.update.interval" json:"policy.update.interval"`
+	Budget                           float64 `yaml:"budget"`
+	Alpha                            float64 `yaml:"policy.alpha"`
+	Beta                             float64 `yaml:"policy.beta"`
+	OptHost                          string  `yaml:"optimizer.host"`
+	OptPort                          int     `yaml:"optimizer.port"`
+	CO2GreenThreshold                float64 `yaml:"policy.threshold.greenness"`
+	VariantsEnabled                  bool    `yaml:"policy.variants.enabled"`
+	TestCloudLatencyMultiplierEnable bool    `yaml:"test.cloud.latency.multiplier.enabled"`
+	TestCloudLatencyMultiplierRegion string  `yaml:"test.cloud.latency.multiplier.region"`
+	TestCloudLatencyMultiplier       float64 `yaml:"test.cloud.latency.multiplier"`
 }
 
 func LoadPolicyConfig(path string) (Co2QosPolicyConfig, error) {
@@ -155,7 +159,11 @@ func LoadPolicyConfig(path string) (Co2QosPolicyConfig, error) {
 	if err != nil {
 		return Co2QosPolicyConfig{}, fmt.Errorf("read file: %w", err)
 	}
-	var c Co2QosPolicyConfig
+	c := Co2QosPolicyConfig{
+		VariantsEnabled:                  true,
+		TestCloudLatencyMultiplierRegion: "b",
+		TestCloudLatencyMultiplier:       2.0,
+	}
 	if err := yaml.Unmarshal(data, &c); err != nil {
 		return Co2QosPolicyConfig{}, fmt.Errorf("unmarshal yaml: %w", err)
 	}
@@ -266,6 +274,7 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		if err != nil {
 			continue
 		}
+		latSec = applyTestCloudLatencyMultiplier(latSec, lb.NodeID.Area, policy.Config)
 		params.OffloadTimeCloud[lb.NodeID.Area] = latSec
 	}
 
@@ -309,20 +318,22 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		params.FunctionInputSizeMean[functionName] = avgInputSize
 		params.FunctionOutputSizeMean[functionName] = avgOutputSize
 
-		// Retrieving variants of current functions
-		if vs, err := function.GetVariantNamesOf(functionName); err == nil && len(vs) > 0 {
-			params.Variants[functionName] = vs
+		if policy.Config.VariantsEnabled {
+			// Retrieving variants of current functions
+			if vs, err := function.GetVariantNamesOf(functionName); err == nil && len(vs) > 0 {
+				params.Variants[functionName] = vs
 
-			// variant utility
-			for _, vName := range vs {
-				vFunc, ok := function.GetFunction(vName)
-				if !ok || vFunc == nil {
-					log.Printf("prepareOptimizerParams: variant %s of %s not found in function registry", vName, functionName)
-					continue
+				// variant utility
+				for _, vName := range vs {
+					vFunc, ok := function.GetFunction(vName)
+					if !ok || vFunc == nil {
+						log.Printf("prepareOptimizerParams: variant %s of %s not found in function registry", vName, functionName)
+						continue
+					}
+					params.VariantUtility[vName] = vFunc.Utility
 				}
-				params.VariantUtility[vName] = vFunc.Utility
-			}
 
+			}
 		}
 
 		execTimesEdge := make(map[string]float64) //[node]=float
@@ -481,25 +492,27 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 	}
 	params.Functions = filtered
 
-	// adding EXEC_VAR among possible decisions
-	hasAnyVariants := false
-	for _, vs := range params.Variants {
-		if len(vs) > 0 {
-			hasAnyVariants = true
-			break
-		}
-	}
-
-	if hasAnyVariants {
-		already := false
-		for _, d := range params.PossibleDecisions {
-			if d == "EXEC_VAR" {
-				already = true
+	if policy.Config.VariantsEnabled {
+		// adding EXEC_VAR among possible decisions
+		hasAnyVariants := false
+		for _, vs := range params.Variants {
+			if len(vs) > 0 {
+				hasAnyVariants = true
 				break
 			}
 		}
-		if !already {
-			params.PossibleDecisions = append(params.PossibleDecisions, "EXEC_VAR")
+
+		if hasAnyVariants {
+			already := false
+			for _, d := range params.PossibleDecisions {
+				if d == "EXEC_VAR" {
+					already = true
+					break
+				}
+			}
+			if !already {
+				params.PossibleDecisions = append(params.PossibleDecisions, "EXEC_VAR")
+			}
 		}
 	}
 
@@ -534,6 +547,19 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 
 func isFunctionVariant(f *function.Function) bool {
 	return f != nil && !f.IsDefault && f.DefaultFunction != ""
+}
+
+func applyTestCloudLatencyMultiplier(latencySec float64, region string, cfg Co2QosPolicyConfig) float64 {
+	if !cfg.TestCloudLatencyMultiplierEnable {
+		return latencySec
+	}
+	if !strings.EqualFold(region, cfg.TestCloudLatencyMultiplierRegion) {
+		return latencySec
+	}
+	if cfg.TestCloudLatencyMultiplier <= 0 {
+		return latencySec
+	}
+	return latencySec * cfg.TestCloudLatencyMultiplier
 }
 
 func fetchAreaStat(area string) (regions.AreaStat, error) {
