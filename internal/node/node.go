@@ -45,6 +45,7 @@ type Resources struct {
 	warmPoolUsedMem int64   // amount of memory used by warm containers
 	usedCPUs        float64 // number of CPU used by functions currently running
 	containerPools  map[string]*ContainerPool
+	Co2Footprint    CarbonFootprint
 }
 
 func (n *Resources) Init() {
@@ -85,6 +86,10 @@ func (n *Resources) TotalCPUs() float64 {
 
 func (n *Resources) TotalMemory() int64 {
 	return n.totalMemory
+}
+
+func (n *Resources) CO2Intensity() float64 {
+	return n.Co2Footprint.Intensity()
 }
 
 var LocalResources Resources

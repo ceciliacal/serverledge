@@ -29,6 +29,21 @@ const OFFLOADING_CACHE_VALIDITY = "offloading.cache.validity"
 // local CPU architecture (optional; auto-detected otherwise)
 const NODE_ARCHITECTURE = "node.architecture"
 
+// CSV column containing sample timestamps.
+const CO2_TRACE_TIME_COLUMN = "co2.trace.time_column"
+
+// CSV column containing carbon intensity in gCO2eq/kWh.
+const CO2_TRACE_INTENSITY_COLUMN = "co2.trace.intensity_column"
+
+// Timezone used for trace timestamps that do not include an explicit zone.
+const CO2_TRACE_TIMEZONE = "co2.trace.timezone"
+
+// Seconds between sequential trace samples.
+const CO2_TRACE_UPDATE_INTERVAL_SEC = "co2.trace.update_interval_sec"
+
+// Optional region scenario file used to enable CO2 tracking and select a trace by registry.area.
+const REGIONS_FILE_PATH = "regions.file.path"
+
 // cache capacity
 const CACHE_SIZE = "cache.size"
 

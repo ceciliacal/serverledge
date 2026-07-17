@@ -1,0 +1,15 @@
+budget: 1.0
+policy.alpha: 1.0
+policy.beta: 0.0
+policy.variants.enabled: true
+policy.update.interval: 600
+policy.threshold.greenness: 150.0
+policy.arrival.rate.alpha: 0.3
+optimizer.host: 127.0.0.1
+optimizer.port: 8080
+
+# Test-only latency perturbation. When enabled, the measured TCP latency
+# to the selected cloud region is multiplied before sending optimizer params.
+test.cloud.latency.multiplier.enabled: true
+test.cloud.latency.multiplier.region: b
+test.cloud.latency.multiplier: 2.0

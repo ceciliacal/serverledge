@@ -1,0 +1,12 @@
+scheduler.policy: co2qosaware
+cloud.server.url: "http://127.0.0.1:1328"
+registry.area: "region_a"
+registry.remote.area: "cloud_region_a"
+registry.udp.port: 9872
+metrics.enabled: true
+regions.file.path: "./examples/carbon/regionsBrown.yaml"
+function.offloading.qos.classes.path: "./examples/qos.yaml"
+policy.general.config.path: "./examples/carbon/co2&qosGeneralConfig.yaml"
+consumption.processing.power: 100.0
+consumption.energy.tx: 51200.0
+consumption.energy.rx: 30720.0

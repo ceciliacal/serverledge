@@ -74,6 +74,7 @@ func getCurrentStatusInformation() (status []byte, err error) {
 		FreeMemory:              node.LocalResources.FreeMemory(),
 		UsedCPU:                 node.LocalResources.UsedCPUs(),
 		Coordinates:             *VivaldiClient.GetCoordinate(),
+		CO2Intensity:            node.LocalResources.CO2Intensity(),
 	}
 
 	return json.Marshal(response)

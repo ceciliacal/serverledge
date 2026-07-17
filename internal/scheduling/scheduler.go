@@ -9,6 +9,7 @@ import (
 	"github.com/serverledge-faas/serverledge/internal/registration"
 
 	"github.com/serverledge-faas/serverledge/internal/container"
+	"github.com/serverledge-faas/serverledge/internal/emissions"
 	"github.com/serverledge-faas/serverledge/internal/function"
 	"github.com/serverledge-faas/serverledge/internal/metrics"
 	"github.com/serverledge-faas/serverledge/internal/node"
@@ -28,6 +29,13 @@ func Run(p Policy) {
 
 	node.LocalResources.Init()
 	log.Printf("Current resources: %v\n", &node.LocalResources)
+
+	stopCO2, err := emissions.SetupCO2FromConfig(node.LocalNode.Area)
+	if err != nil {
+		log.Printf("CO2 tracking disabled: %v", err)
+	} else {
+		defer stopCO2()
+	}
 
 	container.InitDockerContainerFactory()
 

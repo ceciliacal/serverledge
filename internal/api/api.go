@@ -321,6 +321,7 @@ func GetServerStatus(c echo.Context) error {
 		Coordinates:             coords,
 		LoadAvg:                 loadAvgValues,
 		LastUpdateTime:          time.Now().Unix(),
+		CO2Intensity:            node.LocalResources.CO2Intensity(),
 	}
 
 	return c.JSON(http.StatusOK, response)
