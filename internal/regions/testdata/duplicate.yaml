@@ -1,0 +1,5 @@
+regions:
+- name: region_a
+  co2.traces.file: ./trace-a.csv
+- name: region_a
+  co2.traces.file: ./trace-b.csv
