@@ -29,6 +29,9 @@ const OFFLOADING_CACHE_VALIDITY = "offloading.cache.validity"
 // local CPU architecture (optional; auto-detected otherwise)
 const NODE_ARCHITECTURE = "node.architecture"
 
+// Direct CSV trace file used for local CO2 tracking.
+const CO2_TRACE_FILE = "co2.trace.file"
+
 // CSV column containing sample timestamps.
 const CO2_TRACE_TIME_COLUMN = "co2.trace.time_column"
 
