@@ -1,0 +1,12 @@
+regions:
+- name: cloud_region_a
+  co2.traces.file: ./co2_traces/PL_2023_hourly.csv
+  cost: 0.2
+  consumption.processing.power: 800
+  consumption.energy.tx: 0.00000512
+  consumption.energy.rx: 0.000003072
+- name: region_a
+  co2.traces.file: ./co2_traces/FR_2023_hourly.csv
+poll.interval.sec: 3
+header.timestamp: "Datetime (UTC)"
+header.intensity: "Carbon Intensity gCO2eq/kWh (direct)"
