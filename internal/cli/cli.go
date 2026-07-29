@@ -111,6 +111,9 @@ var update bool
 var maxConcurrency int16
 var prewarmCount int64
 var forcePull bool
+var variantName string
+var variantSpeedup float64
+var variantUtility float64
 
 func Init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
@@ -138,6 +141,9 @@ func Init() {
 	createCmd.Flags().StringVarP(&customImage, "custom_image", "", "", "custom container image (only if runtime == 'custom')")
 	createCmd.Flags().StringSliceVarP(&inputs, "input", "i", nil, "Input parameter: <name>:<type>")
 	createCmd.Flags().StringSliceVarP(&outputs, "output", "o", nil, "Output specification: <name>:<type>")
+	createCmd.Flags().StringVar(&variantName, "variant", "", "name of the function variant")
+	createCmd.Flags().Float64Var(&variantSpeedup, "speedup", 1.0, "speedup factor of the variant")
+	createCmd.Flags().Float64Var(&variantUtility, "utility", 1.0, "quality/accuracy utility of the variant in [0,1]")
 
 	rootCmd.AddCommand(prewarmCmd)
 	prewarmCmd.Flags().StringVarP(&funcName, "function", "f", "", "name of the function")
@@ -369,8 +375,13 @@ func create(cmd *cobra.Command, args []string) {
 		sig = function.NewSignature().Build()
 	}
 
+	targetName := funcName
+	if variantName != "" {
+		targetName = variantName
+	}
+
 	request := function.Function{
-		Name:            funcName,
+		Name:            targetName,
 		Handler:         handler,
 		Runtime:         runtime,
 		MaxConcurrency:  maxConcurrency,
@@ -380,6 +391,7 @@ func create(cmd *cobra.Command, args []string) {
 		CustomImage:     customImage,
 		Signature:       sig,
 	}
+	applyVariantMetadata(&request, funcName, variantName, variantSpeedup, variantUtility)
 	requestBody, err := json.Marshal(request)
 	if err != nil {
 		showHelpAndExit(cmd)
@@ -398,6 +410,22 @@ func create(cmd *cobra.Command, args []string) {
 		os.Exit(2)
 	}
 	utils.PrintJsonResponse(resp.Body)
+}
+
+func applyVariantMetadata(request *function.Function, defaultName, variantName string, speedup, utility float64) {
+	if request == nil {
+		return
+	}
+	if variantName != "" {
+		request.Name = variantName
+		request.DefaultFunction = defaultName
+		request.IsDefault = false
+		request.SpeedUp = speedup
+		request.Utility = utility
+		return
+	}
+	request.IsDefault = true
+	request.SpeedUp = 1.0
 }
 
 func ReadSourcesAsTar(srcPath string) ([]byte, error) {

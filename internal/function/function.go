@@ -2,9 +2,12 @@ package function
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
+	"sort"
+	"strings"
 
 	"time"
 
@@ -26,6 +29,57 @@ type Function struct {
 	CustomImage     string   // used if custom runtime is chosen
 	SupportedArchs  []string // list of supported architectures by the runtime
 	Signature       *Signature
+	IsDefault       bool    // true when this function is the default/original implementation
+	DefaultFunction string  // non-empty when this function is a variant of the named default function
+	SpeedUp         float64 // expected speedup over the default implementation; must be > 0 for variants
+	Utility         float64 // quality/accuracy utility in [0,1] for variants
+	jsonFields      functionJSONFields
+}
+
+var (
+	ErrInvalidVariantMetadata = errors.New("invalid function variant metadata")
+)
+
+type functionJSONFields struct {
+	isDefault       bool
+	defaultFunction bool
+	speedUp         bool
+	utility         bool
+}
+
+func (f *Function) UnmarshalJSON(data []byte) error {
+	type functionAlias Function
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	var decoded functionAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	*f = Function(decoded)
+	f.jsonFields = functionJSONFields{
+		isDefault:       jsonFieldPresent(raw, "IsDefault"),
+		defaultFunction: jsonFieldPresent(raw, "DefaultFunction"),
+		speedUp:         jsonFieldPresent(raw, "SpeedUp"),
+		utility:         jsonFieldPresent(raw, "Utility"),
+	}
+	return nil
+}
+
+func jsonFieldPresent(raw map[string]json.RawMessage, name string) bool {
+	if _, ok := raw[name]; ok {
+		return true
+	}
+	for key := range raw {
+		if strings.EqualFold(key, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *Function) getEtcdKey() string {
@@ -38,6 +92,113 @@ func getEtcdKey(funcName string) string {
 
 func (f *Function) SupportsArch(arch string) bool {
 	return slices.Contains(f.SupportedArchs, arch)
+}
+
+func (f *Function) IsVariant() bool {
+	return f != nil && f.DefaultFunction != ""
+}
+
+func (f *Function) ValidateVariantMetadata() error {
+	return f.validateVariantMetadata(false)
+}
+
+func (f *Function) ValidateVariantMetadataFromJSON() error {
+	return f.validateVariantMetadata(true)
+}
+
+func (f *Function) validateVariantMetadata(requireExplicitJSONMetadata bool) error {
+	if f == nil {
+		return nil
+	}
+	if f.IsDefault && f.DefaultFunction != "" {
+		return fmt.Errorf("%w: default function cannot reference another default function", ErrInvalidVariantMetadata)
+	}
+	if !f.IsVariant() && f.jsonFields.isDefault && !f.IsDefault {
+		return fmt.Errorf("%w: variant default function is required", ErrInvalidVariantMetadata)
+	}
+	if f.DefaultFunction == "" {
+		return nil
+	}
+	if requireExplicitJSONMetadata {
+		if !f.jsonFields.defaultFunction {
+			return fmt.Errorf("%w: variant default function is required", ErrInvalidVariantMetadata)
+		}
+		if !f.jsonFields.speedUp {
+			return fmt.Errorf("%w: variant speedup is required", ErrInvalidVariantMetadata)
+		}
+		if !f.jsonFields.utility {
+			return fmt.Errorf("%w: variant utility is required", ErrInvalidVariantMetadata)
+		}
+	}
+	if f.Name == "" {
+		return fmt.Errorf("%w: variant name is required", ErrInvalidVariantMetadata)
+	}
+	if f.Name == f.DefaultFunction {
+		return fmt.Errorf("%w: variant name must differ from default function", ErrInvalidVariantMetadata)
+	}
+	if f.SpeedUp <= 0 {
+		return fmt.Errorf("%w: speedup must be greater than zero", ErrInvalidVariantMetadata)
+	}
+	if f.Utility < 0 || f.Utility > 1 {
+		return fmt.Errorf("%w: utility must be in [0,1]", ErrInvalidVariantMetadata)
+	}
+	return nil
+}
+
+func HasVariants(f *Function) bool {
+	if f == nil {
+		return false
+	}
+	variants, err := GetVariantsOf(f.Name)
+	return err == nil && len(variants) > 0
+}
+
+// GetVariantsOf returns all functions explicitly registered as variants of the
+// supplied default/original function name.
+func GetVariantsOf(baseName string) ([]*Function, error) {
+	names, err := GetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	functions := make([]*Function, 0, len(names))
+	for _, name := range names {
+		f, ok := GetFunction(name)
+		if !ok || f == nil {
+			continue
+		}
+		functions = append(functions, f)
+	}
+	return filterVariants(baseName, functions), nil
+}
+
+func filterVariants(baseName string, functions []*Function) []*Function {
+	variants := make([]*Function, 0)
+	for _, f := range functions {
+		if f != nil && f.IsVariant() && f.DefaultFunction == baseName {
+			variants = append(variants, f)
+		}
+	}
+	sort.Slice(variants, func(i, j int) bool {
+		return variants[i].Name < variants[j].Name
+	})
+	return variants
+}
+
+func GetVariantNamesOf(baseName string) ([]string, error) {
+	variants, err := GetVariantsOf(baseName)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(variants))
+	for _, f := range variants {
+		if f == nil {
+			continue
+		}
+		names = append(names, f.Name)
+	}
+	return names, nil
 }
 
 // GetFunction retrieves a Function given its name. If it doesn't exist, returns false
@@ -102,6 +263,10 @@ func getFromEtcd(name string) (*Function, bool) {
 
 // SaveToEtcd registers the function to Etcd
 func (f *Function) SaveToEtcd() error {
+	if err := f.ValidateVariantMetadata(); err != nil {
+		return err
+	}
+
 	cli, err := utils.GetEtcdClient()
 	if err != nil {
 		return err

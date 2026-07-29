@@ -234,6 +234,19 @@ func CreateOrUpdateFunction(c echo.Context) error {
 		f.MaxConcurrency = 1
 	}
 
+	if err := f.ValidateVariantMetadataFromJSON(); err != nil {
+		return c.String(http.StatusUnprocessableEntity, err.Error())
+	}
+	if f.IsVariant() {
+		defaultFunction, ok := function.GetFunction(f.DefaultFunction)
+		if !ok {
+			return c.String(http.StatusUnprocessableEntity, "variant default function unknown")
+		}
+		if defaultFunction.IsVariant() {
+			return c.String(http.StatusUnprocessableEntity, "variant default function cannot be another variant")
+		}
+	}
+
 	err = f.SaveToEtcd()
 	if err != nil {
 		log.Printf("Failed creation: %v\n", err)
@@ -350,4 +363,23 @@ func PrewarmFunction(c echo.Context) error {
 	}
 	response := struct{ Prewarmed int64 }{count}
 	return c.JSON(http.StatusOK, response)
+}
+
+// GetFunctionVariants returns all variants registered for a default function.
+func GetFunctionVariants(c echo.Context) error {
+	baseName := c.Param("fun")
+
+	_, ok := function.GetFunction(baseName)
+	if !ok {
+		log.Printf("Dropping request for unknown fun '%s'\n", baseName)
+		return c.String(http.StatusNotFound, "Function unknown")
+	}
+
+	variants, err := function.GetVariantsOf(baseName)
+	if err != nil {
+		log.Printf("Could not retrieve variants for '%s': %v\n", baseName, err)
+		return c.String(http.StatusServiceUnavailable, "")
+	}
+
+	return c.JSON(http.StatusOK, variants)
 }

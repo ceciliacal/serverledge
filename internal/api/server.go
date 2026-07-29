@@ -33,6 +33,7 @@ func StartAPIServer(e *echo.Echo) {
 	e.GET("/poll/:reqId", PollAsyncResult)
 	e.GET("/status", GetServerStatus)
 	e.POST("/prewarm", PrewarmFunction)
+	e.GET("/function/:fun/variants", GetFunctionVariants)
 
 	if config.GetBool(config.METRICS_ENABLED, false) {
 		e.GET("/metrics", func(c echo.Context) error {
