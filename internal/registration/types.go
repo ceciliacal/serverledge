@@ -19,14 +19,17 @@ type NodeRegistration struct {
 }
 
 type StatusInformation struct {
-	AvailableWarmContainers map[string]int // <k, v> = <function name, warm container number>
-	TotalMemory             int64
-	AvailableMemory         int64
-	FreeMemory              int64
-	TotalCPU                float64
-	UsedCPU                 float64
-	Coordinates             vivaldi.Coordinate
-	LoadAvg                 []float64
-	LastUpdateTime          int64 // timestamp of last update of this information
-	CO2Intensity            float64
+	AvailableWarmContainers    map[string]int // <k, v> = <function name, warm container number>
+	TotalMemory                int64
+	AvailableMemory            int64
+	FreeMemory                 int64
+	TotalCPU                   float64
+	UsedCPU                    float64
+	Coordinates                vivaldi.Coordinate
+	LoadAvg                    []float64
+	LastUpdateTime             int64 // timestamp of last update of this information
+	CO2Intensity               float64
+	ProcessingPowerConsumption float64
+	TxEnergyConsumption        float64
+	RxEnergyConsumption        float64
 }

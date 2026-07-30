@@ -3,6 +3,7 @@ package regions
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -132,5 +133,38 @@ func TestRepeatedLoadsDoNotKeepStaleState(t *testing.T) {
 	}
 	if _, ok := secondCfg.Area("second"); !ok {
 		t.Fatal("second config missing second area")
+	}
+}
+
+func TestBuildCloudRegionsAndDecisions(t *testing.T) {
+	areas := map[string]AreaInfo{
+		"cloud_b": {
+			Name:                       "cloud_b",
+			Cost:                       0.3,
+			ProcessingPowerConsumption: 900,
+			TxEnergyConsumption:        0.002,
+			RxEnergyConsumption:        0.003,
+		},
+		"cloud_a": {
+			Name:                       "cloud_a",
+			Cost:                       0.2,
+			ProcessingPowerConsumption: 800,
+			TxEnergyConsumption:        0.004,
+			RxEnergyConsumption:        0.005,
+		},
+	}
+	stats := map[string]AreaStat{
+		"cloud_a": {MemoryAvailable: 1024, CO2Intensity: 40},
+		"cloud_b": {MemoryAvailable: 2048, CO2Intensity: 50},
+	}
+
+	decisions, payload := BuildCloudRegionsAndDecisions(areas, stats)
+	wantDecisions := []string{"EXEC", "OFFLOAD_EDGE", "DROP", "OFFLOAD_CLOUD_cloud_a", "OFFLOAD_CLOUD_cloud_b"}
+	if !reflect.DeepEqual(decisions, wantDecisions) {
+		t.Fatalf("decisions = %#v, want %#v", decisions, wantDecisions)
+	}
+	wantA := []float64{1024, 40, 800, 0.004, 0.005, 0.2}
+	if !reflect.DeepEqual(payload["cloud_a"], wantA) {
+		t.Fatalf("cloud_a payload = %#v, want %#v", payload["cloud_a"], wantA)
 	}
 }

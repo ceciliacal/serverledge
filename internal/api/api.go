@@ -325,16 +325,19 @@ func GetServerStatus(c echo.Context) error {
 
 	// TODO: use a different type
 	response := registration.StatusInformation{
-		AvailableWarmContainers: warmStatus,
-		TotalMemory:             totalMem,
-		AvailableMemory:         availMem,
-		FreeMemory:              freeMem,
-		TotalCPU:                totalCPU,
-		UsedCPU:                 usedCPU,
-		Coordinates:             coords,
-		LoadAvg:                 loadAvgValues,
-		LastUpdateTime:          time.Now().Unix(),
-		CO2Intensity:            node.LocalResources.CO2Intensity(),
+		AvailableWarmContainers:    warmStatus,
+		TotalMemory:                totalMem,
+		AvailableMemory:            availMem,
+		FreeMemory:                 freeMem,
+		TotalCPU:                   totalCPU,
+		UsedCPU:                    usedCPU,
+		Coordinates:                coords,
+		LoadAvg:                    loadAvgValues,
+		LastUpdateTime:             time.Now().Unix(),
+		CO2Intensity:               node.LocalResources.CO2Intensity(),
+		ProcessingPowerConsumption: node.LocalResources.ProcessingPower(),
+		TxEnergyConsumption:        node.LocalResources.TxEnergyPerByte(),
+		RxEnergyConsumption:        node.LocalResources.RxEnergyPerByte(),
 	}
 
 	return c.JSON(http.StatusOK, response)

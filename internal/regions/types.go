@@ -58,6 +58,14 @@ type AreaInfo struct {
 	RxEnergyConsumption float64 `mapstructure:"consumption.energy.rx"`
 }
 
+type AreaStat struct {
+	MemoryAvailable            float64 `json:"memory_available"`
+	CO2Intensity               float64 `json:"co2_intensity"`
+	ProcessingPowerConsumption float64 `json:"processing_power_consumption"`
+	TxEnergyConsumption        float64 `json:"tx_energy_consumption"`
+	RxEnergyConsumption        float64 `json:"rx_energy_consumption"`
+}
+
 // Config is an immutable snapshot of one region YAML file.
 type Config struct {
 	areas      []AreaInfo

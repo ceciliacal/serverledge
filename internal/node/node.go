@@ -39,13 +39,16 @@ func NewIdentifier(id, area string) NodeID {
 
 type Resources struct {
 	sync.RWMutex
-	totalMemory     int64
-	totalCPUs       float64
-	busyPoolUsedMem int64   // amount of memory used by functions currently running
-	warmPoolUsedMem int64   // amount of memory used by warm containers
-	usedCPUs        float64 // number of CPU used by functions currently running
-	containerPools  map[string]*ContainerPool
-	Co2Footprint    CarbonFootprint
+	totalMemory                int64
+	totalCPUs                  float64
+	busyPoolUsedMem            int64   // amount of memory used by functions currently running
+	warmPoolUsedMem            int64   // amount of memory used by warm containers
+	usedCPUs                   float64 // number of CPU used by functions currently running
+	containerPools             map[string]*ContainerPool
+	Co2Footprint               CarbonFootprint
+	ProcessingPowerConsumption float64
+	TxEnergyConsumption        float64
+	RxEnergyConsumption        float64
 }
 
 func (n *Resources) Init() {
@@ -53,6 +56,9 @@ func (n *Resources) Init() {
 	n.totalCPUs = config.GetFloat(config.POOL_CPUS, float64(availableCores))
 	n.totalMemory = int64(config.GetInt(config.POOL_MEMORY_MB, 1024))
 	n.containerPools = make(map[string]*ContainerPool)
+	n.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 0)
+	n.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 0) / 1e9
+	n.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 0) / 1e9
 }
 
 func (n *Resources) String() string {
@@ -90,6 +96,18 @@ func (n *Resources) TotalMemory() int64 {
 
 func (n *Resources) CO2Intensity() float64 {
 	return n.Co2Footprint.Intensity()
+}
+
+func (n *Resources) ProcessingPower() float64 {
+	return n.ProcessingPowerConsumption
+}
+
+func (n *Resources) TxEnergyPerByte() float64 {
+	return n.TxEnergyConsumption
+}
+
+func (n *Resources) RxEnergyPerByte() float64 {
+	return n.RxEnergyConsumption
 }
 
 var LocalResources Resources

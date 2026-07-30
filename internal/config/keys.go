@@ -122,9 +122,24 @@ const METRICS_DUMP_JSON_FILE = "metrics.dump.json.file"
 // Filename to load metrics from JSON
 const METRICS_LOAD_JSON_FILE = "metrics.load.json.file"
 
+// Processing power consumed by the local node, in watts.
+const PROCESSING_POWER_CONSUMPTION = "consumption.processing.power"
+
+// Local node transmit energy, configured in nJ/byte and exposed internally as J/byte.
+const TX_ENERGY_CONSUMPTION = "consumption.energy.tx"
+
+// Local node receive energy, configured in nJ/byte and exposed internally as J/byte.
+const RX_ENERGY_CONSUMPTION = "consumption.energy.rx"
+
 // Scheduling policy to use
 // Possible values: "qosaware", "default", "cloudonly"
 const SCHEDULING_POLICY = "scheduler.policy"
+
+// CO2/QoS policy general configuration path.
+const CO2_QOS_POLICY_GENERAL_CONFIG_PATH = "policy.general.config.path"
+
+// QoS class configuration path used by CO2/QoS scheduling.
+const FUNCTION_OFFLOADING_QOS_CLASSES_PATH = "function.offloading.qos.classes.path"
 
 // If "edgeonly" policy is set, tries to execute the offloadable functions locally in the case
 // where all neighbors won't support the function's runtime architecture

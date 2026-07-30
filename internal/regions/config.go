@@ -2,6 +2,7 @@ package regions
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -83,4 +84,36 @@ func ReadRegionConfiguration(filename, areaName string) (AreaInfo, time.Duration
 		return AreaInfo{}, 0, ErrAreaNotFound(areaName)
 	}
 	return area, cfg.PollInterval(), nil
+}
+
+func BuildCloudRegionsAndDecisions(areas map[string]AreaInfo, stats map[string]AreaStat) ([]string, map[string][]float64) {
+	names := make([]string, 0, len(areas))
+	for name := range areas {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	decisions := []string{"EXEC", "OFFLOAD_EDGE", "DROP"}
+	cloudRegions := make(map[string][]float64, len(names))
+	for _, name := range names {
+		area := areas[name]
+		stat := stats[name]
+		decisions = append(decisions, "OFFLOAD_CLOUD_"+name)
+		cloudRegions[name] = []float64{
+			stat.MemoryAvailable,
+			stat.CO2Intensity,
+			positiveOrDefault(stat.ProcessingPowerConsumption, area.ProcessingPowerConsumption),
+			positiveOrDefault(stat.TxEnergyConsumption, area.TxEnergyConsumption),
+			positiveOrDefault(stat.RxEnergyConsumption, area.RxEnergyConsumption),
+			area.Cost,
+		}
+	}
+	return decisions, cloudRegions
+}
+
+func positiveOrDefault(value, fallback float64) float64 {
+	if value > 0 {
+		return value
+	}
+	return fallback
 }

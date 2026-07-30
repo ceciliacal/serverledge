@@ -22,6 +22,7 @@ var Enabled bool
 var registry = prometheus.NewRegistry()
 var ScrapingHandler http.Handler = nil
 var durationBuckets = prometheus.ExponentialBuckets(0.01, 2, 15)
+var cpuUsageBuckets = []float64{0.1, 0.25, 0.5, 0.75, 1.0, 10, 25, 50, 75, 100}
 
 const (
 	COMPLETIONS         = "completed_count"
@@ -30,6 +31,7 @@ const (
 	INITIALIZATION_TIME = "init_time"
 	OUTPUT_SIZE         = "output_size"
 	BRANCH_COUNT        = "branch_count"
+	CPU_USAGE           = "cpu_usage"
 )
 
 var (
@@ -58,17 +60,28 @@ var (
 		Name: BRANCH_COUNT,
 		Help: "Number of executions of a task among multiple alternatives",
 	}, []string{"task", "next_task"})
+	metricCPUUsage = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    CPU_USAGE,
+		Help:    "CPU usage during function execution",
+		Buckets: cpuUsageBuckets,
+	}, []string{"node", "function"})
 )
 
 type RetrievedMetrics struct {
-	EdgeColdStartProbability   map[string]map[string]float64
-	RemoteColdStartProbability map[string]float64
-	AvgRemoteExecutionTime     map[string]float64
-	AvgEdgeExecutionTime       map[string]map[string]float64
-	AvgRemoteInitTime          map[string]float64
-	AvgEdgeInitTime            map[string]map[string]float64
-	AvgOutputSize              map[string]float64
-	BranchFrequency            map[string]map[string]float64
+	EdgeColdStartProbability        map[string]map[string]float64
+	RemoteColdStartProbability      map[string]float64
+	AvgRemoteExecutionTime          map[string]float64
+	AvgEdgeExecutionTime            map[string]map[string]float64
+	AvgRemoteInitTime               map[string]float64
+	AvgEdgeInitTime                 map[string]map[string]float64
+	AvgInputSize                    map[string]float64
+	AvgOutputSize                   map[string]float64
+	AvgCloudRegionExecutionTime     map[string]map[string]float64
+	AvgCloudRegionInitTime          map[string]map[string]float64
+	CloudRegionColdStartProbability map[string]map[string]float64
+	AvgEdgeCPUUsage                 map[string]map[string]float64
+	AvgCloudRegionCPUUsage          map[string]map[string]float64
+	BranchFrequency                 map[string]map[string]float64
 }
 
 func (r RetrievedMetrics) String() string {
@@ -85,8 +98,20 @@ func (r RetrievedMetrics) String() string {
 	s += fmt.Sprintf("  %v\n\n", r.AvgRemoteInitTime)
 	s += "EDGE INIT TIMES:\n"
 	s += fmt.Sprintf("  %v\n\n", r.AvgEdgeInitTime)
+	s += "INPUT SIZE:\n"
+	s += fmt.Sprintf("  %v\n\n", r.AvgInputSize)
 	s += "OUTPUT SIZE:\n"
 	s += fmt.Sprintf("  %v\n\n", r.AvgOutputSize)
+	s += "CLOUD REGION EXEC TIMES:\n"
+	s += fmt.Sprintf("  %v\n\n", r.AvgCloudRegionExecutionTime)
+	s += "CLOUD REGION INIT TIMES:\n"
+	s += fmt.Sprintf("  %v\n\n", r.AvgCloudRegionInitTime)
+	s += "CLOUD REGION COLD START PROB:\n"
+	s += fmt.Sprintf("  %v\n\n", r.CloudRegionColdStartProbability)
+	s += "EDGE CPU USAGE:\n"
+	s += fmt.Sprintf("  %v\n\n", r.AvgEdgeCPUUsage)
+	s += "CLOUD REGION CPU USAGE:\n"
+	s += fmt.Sprintf("  %v\n\n", r.AvgCloudRegionCPUUsage)
 	s += "BRANCH FREQ:\n"
 	s += fmt.Sprintf("  %v\n\n", r.BranchFrequency)
 
@@ -108,6 +133,7 @@ func Init() {
 	registry.MustRegister(metricInitializationTime)
 	registry.MustRegister(metricOutputSize)
 	registry.MustRegister(metricBranchCount)
+	registry.MustRegister(metricCPUUsage)
 
 	ScrapingHandler = promhttp.HandlerFor(registry, promhttp.HandlerOpts{
 		EnableOpenMetrics: true})
@@ -178,6 +204,9 @@ func AddFunctionInitTimeValue(funcName string, initTime float64) {
 }
 func AddFunctionOutputSizeValue(funcName string, size float64) {
 	metricOutputSize.With(prometheus.Labels{"function": funcName}).Observe(size)
+}
+func AddFunctionCpuUsageValue(funcName string, cpuUsage float64) {
+	metricCPUUsage.With(prometheus.Labels{"node": node.LocalNode.String(), "function": funcName}).Observe(cpuUsage)
 }
 func AddBranchCount(taskId string, nextTaskId string) {
 	metricBranchCount.With(prometheus.Labels{"task": taskId, "next_task": nextTaskId}).Inc()

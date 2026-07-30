@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/hexablock/vivaldi"
+	"github.com/serverledge-faas/serverledge/internal/config"
 	"github.com/serverledge-faas/serverledge/internal/node"
+	"github.com/spf13/viper"
 )
 
 func setupVivaldiForTest(t *testing.T) {
@@ -22,6 +24,11 @@ func setupVivaldiForTest(t *testing.T) {
 
 func TestCurrentStatusInformationIncludesCO2AndExistingFields(t *testing.T) {
 	setupVivaldiForTest(t)
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set(config.PROCESSING_POWER_CONSUMPTION, 100.0)
+	viper.Set(config.TX_ENERGY_CONSUMPTION, 51200.0)
+	viper.Set(config.RX_ENERGY_CONSUMPTION, 30720.0)
 	node.LocalResources.Init()
 	node.LocalResources.Co2Footprint.Set(time.Unix(0, 0), 42.5, 1)
 
@@ -45,6 +52,15 @@ func TestCurrentStatusInformationIncludesCO2AndExistingFields(t *testing.T) {
 	}
 	if status.FreeMemory == 0 {
 		t.Fatal("FreeMemory was not preserved")
+	}
+	if status.ProcessingPowerConsumption != 100.0 {
+		t.Fatalf("ProcessingPowerConsumption = %v, want 100", status.ProcessingPowerConsumption)
+	}
+	if status.TxEnergyConsumption != 0.0000512 {
+		t.Fatalf("TxEnergyConsumption = %v, want 0.0000512", status.TxEnergyConsumption)
+	}
+	if status.RxEnergyConsumption != 0.00003072 {
+		t.Fatalf("RxEnergyConsumption = %v, want 0.00003072", status.RxEnergyConsumption)
 	}
 }
 

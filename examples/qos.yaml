@@ -1,0 +1,16 @@
+classes:
+  # Classe Premium: alta priorità, alta utilità, penalità severe.
+  - id: 0
+    name: premium
+    max_resp_time: 0.0005    # Deadline stringente (500ms)
+    utility: 1.0          # Alto valore per il successo
+    deadline_penalty: 0.8 # Penalità significativa se la richiesta è in ritardo
+    drop_penalty: 5.0     # Penalità molto alta se la richiesta viene scartata
+
+  # Classe Standard: bassa priorità, bassa utilità, penalità leggere.
+  - id: 1
+    name: standard
+    max_resp_time: 2.0    # Deadline rilassata (2s)
+    utility: 0.1          # Basso valore per il successo
+    deadline_penalty: 0.05 # Penalità trascurabile per il ritardo
+    drop_penalty: 0.5     # Penalità moderata se la richiesta viene scartata
