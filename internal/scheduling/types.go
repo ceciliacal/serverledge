@@ -9,16 +9,18 @@ import (
 type scheduledRequest struct {
 	*function.Request
 	*function.ExecutionReport
+	executionTarget *function.Function
 	offloaded       bool
 	decisionChannel chan schedDecision
 }
 
 type completionNotification struct {
-	failed    bool
-	funcName  string
-	offloaded bool
-	report    function.ExecutionReport
-	cont      *container.Container
+	failed           bool
+	funcName         string
+	physicalFuncName string
+	offloaded        bool
+	report           function.ExecutionReport
+	cont             *container.Container
 }
 
 // schedDecision wraps a action made by the scheduler.
@@ -29,6 +31,7 @@ type schedDecision struct {
 	cont       *container.Container
 	remoteHost string
 	useWarm    bool
+	variant    *function.Function
 }
 
 type action int64

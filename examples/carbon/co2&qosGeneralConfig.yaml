@@ -1,8 +1,8 @@
 budget: 1.0
-policy.alpha: 1.0
-policy.beta: 0.0
+policy.alpha: 0.0
+policy.beta: 1.0
 policy.variants.enabled: true
-policy.update.interval: 600
+policy.update.interval: 20
 policy.threshold.greenness: 150.0
 policy.arrival.rate.alpha: 0.3
 optimizer.host: 127.0.0.1

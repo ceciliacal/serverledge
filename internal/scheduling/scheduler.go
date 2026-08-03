@@ -67,7 +67,13 @@ func Run(p Policy) {
 				log.Printf("Function %s not found", c.funcName)
 				continue
 			}
-			node.HandleCompletion(c.cont, f)
+			physicalFunc := f
+			if c.physicalFuncName != "" && c.physicalFuncName != c.funcName {
+				if pf, found := function.GetFunction(c.physicalFuncName); found {
+					physicalFunc = pf
+				}
+			}
+			node.HandleCompletion(c.cont, physicalFunc)
 			p.OnCompletion(f, &c.report)
 
 			if metrics.Enabled && !c.failed {

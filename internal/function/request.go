@@ -27,6 +27,7 @@ type ExecutionReport struct {
 	Result         string
 	ResponseTime   float64 // time waited by the user to get the output: completion time - arrival time
 	IsWarmStart    bool
+	IsDefault      bool    `json:"isDefault"` // true when the physically executed function is not a registered variant
 	InitTime       float64 // time spent sleeping before initializing container
 	QueueingTime   float64 // time spent waiting in the queue
 	OffloadLatency float64 // time spent offloading the request

@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,10 +32,12 @@ const (
 )
 
 type MultiRegionProbs struct {
-	PLocal float64
-	PEdge  float64
-	PDrop  float64
-	PCloud map[string]float64
+	PLocal    float64
+	PLocalVar float64
+	PEdge     float64
+	PDrop     float64
+	PCloud    map[string]float64
+	PVariants map[string]float64
 }
 
 type OptCarbonAwareParams struct {
@@ -42,6 +45,8 @@ type OptCarbonAwareParams struct {
 	PossibleDecisions []string                      `json:"possible_decisions"`
 	Functions         []string                      `json:"functions"`
 	Classes           []string                      `json:"classes"`
+	Variants          map[string][]string           `json:"variants,omitempty"`
+	VariantUtility    map[string]float64            `json:"variant_utility,omitempty"`
 	ArrivalRates      map[string]map[string]float64 `json:"arrival_rates"`
 
 	ServTimeLocal   map[string]float64 `json:"serv_time_local"`
@@ -92,6 +97,8 @@ type OptCarbonAwareParams struct {
 func initOptCarbonAwareParams() OptCarbonAwareParams {
 	return OptCarbonAwareParams{
 		CloudRegions:           make(map[string][]float64),
+		Variants:               make(map[string][]string),
+		VariantUtility:         make(map[string]float64),
 		ArrivalRates:           make(map[string]map[string]float64),
 		ServTimeLocal:          make(map[string]float64),
 		InitTimeLocal:          make(map[string]float64),
@@ -194,16 +201,35 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 		}
 	}
 
+	allFunctions := make(map[string]*function.Function, len(functionNames))
 	for _, functionName := range functionNames {
 		realFunc, ok := policy.getFunction(functionName)
 		if !ok || realFunc == nil {
 			continue
 		}
-		params.Functions = append(params.Functions, functionName)
-		params.FunctionMemory[functionName] = realFunc.MemoryMB
-		params.FunctionInputSizeMean[functionName] = positiveOrDefault(retrievedMetrics.AvgInputSize[functionName], defaultInputSize)
-		params.FunctionOutputSizeMean[functionName] = positiveOrDefault(retrievedMetrics.AvgOutputSize[functionName], defaultOutputSize)
-		policy.populateFunctionTiming(&params, retrievedMetrics, realFunc)
+		allFunctions[functionName] = realFunc
+	}
+
+	for _, functionName := range functionNames {
+		realFunc := allFunctions[functionName]
+		if realFunc == nil || realFunc.IsVariant() {
+			continue
+		}
+		policy.populateOptimizerFunction(&params, retrievedMetrics, realFunc)
+
+		variants := policy.validVariantsOf(realFunc, allFunctions)
+		for _, variant := range variants {
+			params.Variants[realFunc.Name] = append(params.Variants[realFunc.Name], variant.Name)
+			params.VariantUtility[variant.Name] = variant.Utility
+			policy.populateOptimizerVariant(&params, retrievedMetrics, realFunc, variant)
+		}
+		if len(variants) > 0 && !containsDecision(params.PossibleDecisions, "EXEC_VAR") {
+			params.PossibleDecisions = append(params.PossibleDecisions, "EXEC_VAR")
+		}
+	}
+	if len(params.Variants) == 0 {
+		params.Variants = nil
+		params.VariantUtility = nil
 	}
 
 	for _, class := range allClasses {
@@ -223,6 +249,75 @@ func (policy *Co2QosAwarePolicy) prepareOptimizerParams() (OptCarbonAwareParams,
 	params.ArrivalRates = BuildNestedArrivalRates(flat, allClasses)
 
 	return params, nil
+}
+
+func (policy *Co2QosAwarePolicy) populateOptimizerFunction(params *OptCarbonAwareParams, retrieved metrics.RetrievedMetrics, fun *function.Function) {
+	functionName := fun.Name
+	params.Functions = append(params.Functions, functionName)
+	params.FunctionMemory[functionName] = fun.MemoryMB
+	params.FunctionInputSizeMean[functionName] = positiveOrDefault(retrieved.AvgInputSize[functionName], defaultInputSize)
+	params.FunctionOutputSizeMean[functionName] = positiveOrDefault(retrieved.AvgOutputSize[functionName], defaultOutputSize)
+	policy.populateFunctionTiming(params, retrieved, fun)
+}
+
+func (policy *Co2QosAwarePolicy) populateOptimizerVariant(params *OptCarbonAwareParams, retrieved metrics.RetrievedMetrics, base, variant *function.Function) {
+	params.FunctionMemory[variant.Name] = variant.MemoryMB
+	params.FunctionInputSizeMean[variant.Name] = positiveOrDefault(retrieved.AvgInputSize[variant.Name], params.FunctionInputSizeMean[base.Name])
+	params.FunctionOutputSizeMean[variant.Name] = positiveOrDefault(retrieved.AvgOutputSize[variant.Name], params.FunctionOutputSizeMean[base.Name])
+
+	localNodeName := localNodeMetricName()
+	baseService := params.ServTimeLocal[base.Name]
+	variantService := baseService / variant.SpeedUp
+	if byFunction, ok := retrieved.AvgEdgeExecutionTime[localNodeName]; ok {
+		if measured := byFunction[variant.Name]; validPositive(measured) {
+			variantService = measured
+		}
+	}
+	params.ServTimeLocal[variant.Name] = positiveOrDefault(variantService, defaultServiceTimeSec)
+	params.InitTimeLocal[variant.Name] = metricByNode(retrieved.AvgEdgeInitTime, localNodeName, variant.Name, params.InitTimeLocal[base.Name])
+	params.ColdStartPLocal[variant.Name] = metricByNode(retrieved.EdgeColdStartProbability, localNodeName, variant.Name, params.ColdStartPLocal[base.Name])
+	params.CPUUsageLocal[variant.Name] = metricByNode(retrieved.AvgEdgeCPUUsage, localNodeName, variant.Name, params.CPUUsageLocal[base.Name])
+}
+
+func containsDecision(decisions []string, want string) bool {
+	for _, decision := range decisions {
+		if decision == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (policy *Co2QosAwarePolicy) validVariantsOf(base *function.Function, allFunctions map[string]*function.Function) []*function.Function {
+	variants := make([]*function.Function, 0)
+	for _, candidate := range allFunctions {
+		if candidate == nil || !candidate.IsVariant() || candidate.DefaultFunction != base.Name {
+			continue
+		}
+		if err := candidate.ValidateVariantMetadata(); err != nil {
+			continue
+		}
+		if !candidate.SupportsArch(node.LocalNode.Arch) || !canExecuteFunctionLocally(candidate) {
+			continue
+		}
+		if hasChildVariant(candidate.Name, allFunctions) {
+			continue
+		}
+		variants = append(variants, candidate)
+	}
+	sort.Slice(variants, func(i, j int) bool {
+		return variants[i].Name < variants[j].Name
+	})
+	return variants
+}
+
+func hasChildVariant(name string, allFunctions map[string]*function.Function) bool {
+	for _, candidate := range allFunctions {
+		if candidate != nil && candidate.IsVariant() && candidate.DefaultFunction == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (policy *Co2QosAwarePolicy) populateEdgeParams(params *OptCarbonAwareParams) {
@@ -357,6 +452,7 @@ func (policy *Co2QosAwarePolicy) optimizerLoop() {
 }
 
 func (policy *Co2QosAwarePolicy) invokeOptimizer(params OptCarbonAwareParams) error {
+	policy.setDefaultHooks()
 	jsonData, err := json.Marshal(params)
 	if err != nil {
 		return fmt.Errorf("marshal optimizer params: %w", err)
@@ -375,29 +471,119 @@ func (policy *Co2QosAwarePolicy) invokeOptimizer(params OptCarbonAwareParams) er
 	if err != nil {
 		return err
 	}
-	for k, v := range parsed {
-		policy.probabilityCache.Store(k, v)
+	if err := policy.validateOptimizerVariantResponse(parsed); err != nil {
+		return err
 	}
+	policy.storeOptimizerSnapshot(parsed.toSnapshot())
 	return nil
 }
 
-func parseOptimizerResponse(body []byte) (map[string]MultiRegionProbs, error) {
+type parsedOptimizerResponse struct {
+	Probabilities        map[string]MultiRegionProbs
+	VariantProbabilities map[string]map[string]float64
+}
+
+type optimizerSnapshot struct {
+	Probabilities        map[string]MultiRegionProbs
+	VariantProbabilities map[string]map[string]float64
+}
+
+func emptyOptimizerSnapshot() optimizerSnapshot {
+	return optimizerSnapshot{
+		Probabilities:        make(map[string]MultiRegionProbs),
+		VariantProbabilities: make(map[string]map[string]float64),
+	}
+}
+
+func (parsed parsedOptimizerResponse) toSnapshot() optimizerSnapshot {
+	return optimizerSnapshot{
+		Probabilities:        cloneProbabilityMap(parsed.Probabilities),
+		VariantProbabilities: cloneVariantProbabilityMap(parsed.VariantProbabilities),
+	}
+}
+
+func (policy *Co2QosAwarePolicy) loadOptimizerSnapshot() optimizerSnapshot {
+	if value := policy.optimizerSnapshot.Load(); value != nil {
+		if snapshot, ok := value.(optimizerSnapshot); ok {
+			return snapshot
+		}
+	}
+	return emptyOptimizerSnapshot()
+}
+
+func (policy *Co2QosAwarePolicy) storeOptimizerSnapshot(snapshot optimizerSnapshot) {
+	policy.optimizerSnapshot.Store(snapshot)
+}
+
+func cloneProbabilityMap(in map[string]MultiRegionProbs) map[string]MultiRegionProbs {
+	out := make(map[string]MultiRegionProbs, len(in))
+	for key, probs := range in {
+		clone := probs
+		clone.PCloud = cloneFloatMap(probs.PCloud)
+		clone.PVariants = cloneFloatMap(probs.PVariants)
+		out[key] = clone
+	}
+	return out
+}
+
+func cloneVariantProbabilityMap(in map[string]map[string]float64) map[string]map[string]float64 {
+	out := make(map[string]map[string]float64, len(in))
+	for key, variants := range in {
+		out[key] = cloneFloatMap(variants)
+	}
+	return out
+}
+
+func cloneFloatMap(in map[string]float64) map[string]float64 {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]float64, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func parseOptimizerResponse(body []byte) (parsedOptimizerResponse, error) {
 	var wrapped struct {
 		Probs    map[string]map[string]map[string]float64 `json:"probs"`
 		VarProbs map[string]map[string]map[string]float64 `json:"decision_fc_probability_var"`
 	}
 	if err := json.Unmarshal(body, &wrapped); err == nil && wrapped.Probs != nil {
-		if len(wrapped.VarProbs) > 0 {
-			return nil, fmt.Errorf("optimizer returned variant probabilities during phase 1")
+		probs, err := parseOptimizerProbabilityMap(wrapped.Probs)
+		if err != nil {
+			return parsedOptimizerResponse{}, err
 		}
-		return parseOptimizerProbabilityMap(wrapped.Probs)
+		variants := parseVariantProbabilityMap(wrapped.VarProbs)
+		return parsedOptimizerResponse{Probabilities: probs, VariantProbabilities: variants}, nil
 	}
 
 	var nested map[string]map[string]map[string]float64
 	if err := json.Unmarshal(body, &nested); err != nil {
-		return nil, fmt.Errorf("unmarshal optimizer response: %w", err)
+		return parsedOptimizerResponse{}, fmt.Errorf("unmarshal optimizer response: %w", err)
 	}
-	return parseOptimizerProbabilityMap(nested)
+	probs, err := parseOptimizerProbabilityMap(nested)
+	if err != nil {
+		return parsedOptimizerResponse{}, err
+	}
+	return parsedOptimizerResponse{Probabilities: probs, VariantProbabilities: make(map[string]map[string]float64)}, nil
+}
+
+func parseVariantProbabilityMap(nested map[string]map[string]map[string]float64) map[string]map[string]float64 {
+	out := make(map[string]map[string]float64)
+	for fn, variants := range nested {
+		for variantName, classes := range variants {
+			for class, probability := range classes {
+				key := fn + "|" + class
+				if _, ok := out[key]; !ok {
+					out[key] = make(map[string]float64)
+				}
+				out[key][variantName] = probability
+			}
+		}
+	}
+	return out
 }
 
 func parseOptimizerProbabilityMap(nested map[string]map[string]map[string]float64) (map[string]MultiRegionProbs, error) {
@@ -413,14 +599,14 @@ func parseOptimizerProbabilityMap(nested map[string]map[string]map[string]float6
 					probs.PLocal = v
 				case dec == "OFFLOAD_EDGE":
 					probs.PEdge = v
+				case dec == "EXEC_VAR":
+					probs.PLocalVar = v
 				case strings.HasPrefix(dec, "OFFLOAD_CLOUD_"):
 					region := strings.TrimPrefix(dec, "OFFLOAD_CLOUD_")
 					if region == "" {
 						return nil, fmt.Errorf("empty cloud region in optimizer decision %q", dec)
 					}
 					probs.PCloud[region] = v
-				case dec == "EXEC_VAR":
-					return nil, fmt.Errorf("unsupported optimizer decision in phase 1: %s", dec)
 				default:
 					return nil, fmt.Errorf("unknown optimizer decision: %s", dec)
 				}
@@ -429,6 +615,73 @@ func parseOptimizerProbabilityMap(nested map[string]map[string]map[string]float6
 		}
 	}
 	return out, nil
+}
+
+func (policy *Co2QosAwarePolicy) validateOptimizerVariantResponse(parsed parsedOptimizerResponse) error {
+	for key, variants := range parsed.VariantProbabilities {
+		fn, _, ok := strings.Cut(key, "|")
+		if !ok || fn == "" {
+			return fmt.Errorf("malformed variant probability key %q", key)
+		}
+		base, ok := policy.getFunction(fn)
+		if !ok || base == nil {
+			return fmt.Errorf("optimizer returned variants for unknown function %q", fn)
+		}
+		if base.IsVariant() {
+			return fmt.Errorf("optimizer returned variants for variant function %q", fn)
+		}
+		for variantName, probability := range variants {
+			if probability < 0 || math.IsNaN(probability) || math.IsInf(probability, 0) {
+				return fmt.Errorf("invalid probability for variant %q of %q", variantName, fn)
+			}
+			if _, err := policy.validateVariantForBase(base, variantName); err != nil {
+				return err
+			}
+		}
+	}
+	for key, probs := range parsed.Probabilities {
+		if probs.PLocalVar <= 0 {
+			continue
+		}
+		variants := parsed.VariantProbabilities[key]
+		if len(variants) == 0 {
+			return fmt.Errorf("optimizer returned EXEC_VAR without variant probabilities for %q", key)
+		}
+	}
+	return nil
+}
+
+func (policy *Co2QosAwarePolicy) validateVariantForBase(base *function.Function, variantName string) (*function.Function, error) {
+	variant, ok := policy.getFunction(variantName)
+	if !ok || variant == nil {
+		return nil, fmt.Errorf("optimizer returned unknown variant %q", variantName)
+	}
+	if variant.DefaultFunction != base.Name {
+		return nil, fmt.Errorf("optimizer returned variant %q for wrong default %q", variantName, base.Name)
+	}
+	if !variant.IsVariant() || variant.IsDefault {
+		return nil, fmt.Errorf("optimizer returned non-variant %q", variantName)
+	}
+	if err := variant.ValidateVariantMetadata(); err != nil {
+		return nil, err
+	}
+	if !variant.SupportsArch(node.LocalNode.Arch) {
+		return nil, fmt.Errorf("variant %q does not support local architecture %q", variantName, node.LocalNode.Arch)
+	}
+	if !canExecuteFunctionLocally(variant) {
+		return nil, fmt.Errorf("variant %q does not fit local resources", variantName)
+	}
+	names, err := policy.listFunctions()
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		child, ok := policy.getFunction(name)
+		if ok && child != nil && child.IsVariant() && child.DefaultFunction == variant.Name {
+			return nil, fmt.Errorf("variant %q is a default for another variant", variantName)
+		}
+	}
+	return variant, nil
 }
 
 func BuildNestedArrivalRates(flat map[string]float64, classes []QoSClass) map[string]map[string]float64 {

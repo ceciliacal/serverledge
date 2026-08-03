@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/serverledge-faas/serverledge/internal/config"
@@ -22,9 +23,9 @@ import (
 const edgeDecisionTarget = "__edge__"
 
 type Co2QosAwarePolicy struct {
-	probabilityCache sync.Map
-	updateInterval   time.Duration
-	httpClient       *http.Client
+	optimizerSnapshot atomic.Value
+	updateInterval    time.Duration
+	httpClient        *http.Client
 
 	arrivalCounts      map[string]int64
 	arrivalCountsMutex sync.Mutex
@@ -208,15 +209,9 @@ func (policy *Co2QosAwarePolicy) OnCompletion(_ *function.Function, _ *function.
 
 func (policy *Co2QosAwarePolicy) evaluate(r *scheduledRequest, cacheKey string) (schedDecision, error) {
 	policy.setDefaultHooks()
-	val, ok := policy.probabilityCache.Load(cacheKey)
-	var probs MultiRegionProbs
-	if ok {
-		var typeOK bool
-		probs, typeOK = val.(MultiRegionProbs)
-		if !typeOK {
-			return schedDecision{}, errors.New("invalid probability cache entry")
-		}
-	} else {
+	snapshot := policy.loadOptimizerSnapshot()
+	probs, ok := snapshot.Probabilities[cacheKey]
+	if !ok {
 		probs = policy.defaultProbabilities(r.Fun)
 	}
 	if !r.CanDoOffloading {
@@ -225,10 +220,23 @@ func (policy *Co2QosAwarePolicy) evaluate(r *scheduledRequest, cacheKey string) 
 			probs.PCloud[region] = 0
 		}
 	}
+	if r.Fun.IsVariant() {
+		probs.PEdge = 0
+		probs.PLocalVar = 0
+		probs.PVariants = nil
+		for region := range probs.PCloud {
+			probs.PCloud[region] = 0
+		}
+	}
 	if !r.Fun.SupportsArch(node.LocalNode.Arch) || !canExecuteLocally(r.Fun) {
 		probs.PLocal = 0
 	}
-	return policy.randomizedChoice(probs)
+	if !r.Fun.IsVariant() {
+		if variants, ok := snapshot.VariantProbabilities[cacheKey]; ok {
+			probs.PVariants = variants
+		}
+	}
+	return policy.randomizedChoice(r.Fun, probs)
 }
 
 func (policy *Co2QosAwarePolicy) defaultProbabilities(fun *function.Function) MultiRegionProbs {
@@ -248,14 +256,14 @@ func (policy *Co2QosAwarePolicy) defaultProbabilities(fun *function.Function) Mu
 	return probs
 }
 
-func (policy *Co2QosAwarePolicy) randomizedChoice(probs MultiRegionProbs) (schedDecision, error) {
+func (policy *Co2QosAwarePolicy) randomizedChoice(fun *function.Function, probs MultiRegionProbs) (schedDecision, error) {
 	regionNames := make([]string, 0, len(probs.PCloud))
 	for region := range probs.PCloud {
 		regionNames = append(regionNames, region)
 	}
 	sort.Strings(regionNames)
 
-	sum := probs.PLocal + probs.PEdge + probs.PDrop
+	sum := probs.PLocal + probs.PLocalVar + probs.PEdge + probs.PDrop
 	for _, region := range regionNames {
 		sum += probs.PCloud[region]
 	}
@@ -267,6 +275,15 @@ func (policy *Co2QosAwarePolicy) randomizedChoice(probs MultiRegionProbs) (sched
 	cumulative := probs.PLocal / sum
 	if randomValue < cumulative {
 		return schedDecision{action: EXEC_LOCAL}, nil
+	}
+
+	cumulative += probs.PLocalVar / sum
+	if randomValue < cumulative {
+		variant, err := policy.selectVariant(fun, probs.PVariants)
+		if err != nil {
+			return schedDecision{}, err
+		}
+		return schedDecision{action: EXEC_LOCAL, variant: variant}, nil
 	}
 
 	for _, region := range regionNames {
@@ -283,7 +300,45 @@ func (policy *Co2QosAwarePolicy) randomizedChoice(probs MultiRegionProbs) (sched
 	return schedDecision{action: DROP}, nil
 }
 
+func (policy *Co2QosAwarePolicy) selectVariant(base *function.Function, probs map[string]float64) (*function.Function, error) {
+	if base == nil || base.IsVariant() {
+		return nil, errors.New("variant selection requires a default function")
+	}
+	if len(probs) == 0 {
+		return nil, errors.New("missing variant probabilities for EXEC_VAR")
+	}
+	names := make([]string, 0, len(probs))
+	var total float64
+	for name, p := range probs {
+		if p <= 0 {
+			continue
+		}
+		names = append(names, name)
+		total += p
+	}
+	if total <= 0 {
+		return nil, errors.New("EXEC_VAR has no positive variant probability")
+	}
+	sort.Strings(names)
+	randomValue := policy.randFloat64()
+	var cumulative float64
+	for _, name := range names {
+		cumulative += probs[name] / total
+		if randomValue < cumulative {
+			return policy.validateVariantForBase(base, name)
+		}
+	}
+	return policy.validateVariantForBase(base, names[len(names)-1])
+}
+
 func canExecuteLocally(fun *function.Function) bool {
+	return canExecuteFunctionLocally(fun)
+}
+
+func canExecuteFunctionLocally(fun *function.Function) bool {
+	if fun == nil {
+		return false
+	}
 	node.LocalResources.RLock()
 	defer node.LocalResources.RUnlock()
 	return node.LocalResources.AvailableCPUs() >= fun.CPUDemand &&
@@ -295,7 +350,12 @@ func (policy *Co2QosAwarePolicy) applyDecision(r *scheduledRequest, decision sch
 	case DROP:
 		policy.drop(r)
 	case EXEC_LOCAL:
-		cont, warm, err := policy.acquireContainer(r.Fun, false)
+		execFun := r.Fun
+		if decision.variant != nil {
+			execFun = decision.variant
+		}
+		r.executionTarget = execFun
+		cont, warm, err := policy.acquireContainer(execFun, false)
 		if err != nil {
 			log.Printf("CO2/QoS local acquire failed: %v", err)
 			policy.drop(r)

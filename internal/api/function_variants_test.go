@@ -147,6 +147,33 @@ func TestVariantFunctionAPISerialization(t *testing.T) {
 	}
 }
 
+func TestInvocationResponseJSONIncludesIsDefault(t *testing.T) {
+	payload, err := json.Marshal(function.Response{
+		Success: true,
+		ExecutionReport: function.ExecutionReport{
+			Result:    "ok",
+			IsDefault: true,
+			Duration:  0.1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal invocation response: %v", err)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal invocation response: %v", err)
+	}
+	if decoded["isDefault"] != true {
+		t.Fatalf("isDefault = %#v in %s, want true", decoded["isDefault"], payload)
+	}
+	if _, ok := decoded["IsDefault"]; ok {
+		t.Fatalf("response contains unexpected IsDefault field: %s", payload)
+	}
+	if decoded["Result"] != "ok" || decoded["Success"] != true {
+		t.Fatalf("existing response fields changed: %#v", decoded)
+	}
+}
+
 func TestCreateFunctionAcceptsBackwardCompatiblePlainPayload(t *testing.T) {
 	resetFunctionRegistry(t)
 

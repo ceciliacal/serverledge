@@ -15,10 +15,13 @@ const ARM = "arm64"
 var refreshedImages = map[string]bool{}
 
 var RuntimeToInfo = map[string]RuntimeInfo{
-	"python314":   {"grussorusso/serverledge-python314", []string{"python", "/entrypoint.py"}, true, []string{X86, ARM}},
-	"nodejs17ng":  {"grussorusso/serverledge-nodejs17ng", []string{}, false, []string{X86, ARM}},
-	"go125":       {"grussorusso/serverledge-go125", []string{"/entrypoint.sh"}, true, []string{X86, ARM}},
-	"python312ml": {"grussorusso/serverledge-python312ml", []string{"python", "/entrypoint.py"}, true, []string{X86, ARM}},
+	"python314":    {"grussorusso/serverledge-python314", []string{"python", "/entrypoint.py"}, true, []string{X86, ARM}},
+	"nodejs17ng":   {"grussorusso/serverledge-nodejs17ng", []string{}, false, []string{X86, ARM}},
+	"go125":        {"grussorusso/serverledge-go125", []string{"/entrypoint.sh"}, true, []string{X86, ARM}},
+	"python312ml":  {"grussorusso/serverledge-python312ml", []string{"python", "/entrypoint.py"}, true, []string{X86, ARM}},
+	"my_python310": {"ceciliacal/my_python310", []string{"python3", "/executor.py"}, false, []string{X86, ARM}},
+	"ml-py":        {"ceciliacal/ml-py", []string{"python3", "/executor.py"}, false, []string{X86, ARM}},
+	"video-py":     {"ceciliacal/video-py", []string{"python3", "/executor.py"}, false, []string{X86, ARM}},
 }
 
 // CustomRuntimeToInfo Map to keep track of architectures compatible with each custom runtime image associated with a function registered

@@ -101,6 +101,7 @@ func Offload(r *scheduledRequest, serverUrl string) error {
 
 	originalArrivalTime := r.Arrival
 	r.ExecutionReport = &response.ExecutionReport // switching execution report
+	r.markPhysicalExecutionTarget(r.Fun)
 	r.ResponseTime = now.Sub(originalArrivalTime).Seconds()
 	r.OffloadLatency = now.Sub(sendingTime).Seconds() - r.Duration - r.InitTime
 	r.offloaded = true

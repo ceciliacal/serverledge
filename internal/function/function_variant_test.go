@@ -194,3 +194,39 @@ func TestFunctionHasNoAWSVariantFields(t *testing.T) {
 		t.Fatal("Function has ArnCode field")
 	}
 }
+
+func TestInvocationResponseSerializesIsDefaultField(t *testing.T) {
+	response := Response{
+		Success: true,
+		ExecutionReport: ExecutionReport{
+			Result:       "ok",
+			ResponseTime: 0.25,
+			IsWarmStart:  true,
+			IsDefault:    false,
+			InitTime:     0.1,
+			Duration:     0.2,
+			Output:       "stdout",
+		},
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if _, ok := decoded["isDefault"]; !ok {
+		t.Fatalf("serialized response %s does not contain exact isDefault field", payload)
+	}
+	if _, ok := decoded["IsDefault"]; ok {
+		t.Fatalf("serialized response %s contains unexpected IsDefault field", payload)
+	}
+	if decoded["Result"] != "ok" || decoded["Success"] != true || decoded["IsWarmStart"] != true {
+		t.Fatalf("existing response fields changed: %#v", decoded)
+	}
+	if decoded["isDefault"] != false {
+		t.Fatalf("isDefault = %#v, want false", decoded["isDefault"])
+	}
+}
