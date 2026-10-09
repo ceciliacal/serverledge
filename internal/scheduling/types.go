@@ -23,6 +23,16 @@ type completionNotification struct {
 	cont             *container.Container
 }
 
+func (c *completionNotification) physicalFunctionName() string {
+	if c != nil && c.physicalFuncName != "" {
+		return c.physicalFuncName
+	}
+	if c == nil {
+		return ""
+	}
+	return c.funcName
+}
+
 // schedDecision wraps a action made by the scheduler.
 // Possible decisions are 1) drop, 2) execute locally or 3) execute on a remote
 // Node (offloading).

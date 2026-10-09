@@ -76,20 +76,44 @@ func Run(p Policy) {
 			node.HandleCompletion(c.cont, physicalFunc)
 			p.OnCompletion(f, &c.report)
 
-			if metrics.Enabled && !c.failed {
-				metrics.AddCompletedInvocation(c.funcName, !c.report.IsWarmStart)
-				if !c.offloaded {
-					metrics.AddFunctionDurationValue(c.funcName, c.report.Duration)
-					if !c.report.IsWarmStart {
-						metrics.AddFunctionInitTimeValue(c.funcName, c.report.InitTime)
-					}
-				}
-				outputSize := len(c.report.Result)
-				metrics.AddFunctionOutputSizeValue(r.Fun.Name, float64(outputSize))
-			}
+			recordCompletionMetrics(c)
 		}
 	}
 
+}
+
+type completionMetricsRecorder struct {
+	addCompletedInvocation func(string, bool)
+	addFunctionDuration    func(string, float64)
+	addFunctionInitTime    func(string, float64)
+	addFunctionOutputSize  func(string, float64)
+}
+
+var defaultCompletionMetricsRecorder = completionMetricsRecorder{
+	addCompletedInvocation: metrics.AddCompletedInvocation,
+	addFunctionDuration:    metrics.AddFunctionDurationValue,
+	addFunctionInitTime:    metrics.AddFunctionInitTimeValue,
+	addFunctionOutputSize:  metrics.AddFunctionOutputSizeValue,
+}
+
+func recordCompletionMetrics(c *completionNotification) {
+	if !metrics.Enabled || c == nil || c.failed {
+		return
+	}
+	recordCompletionMetricsWith(c, defaultCompletionMetricsRecorder)
+}
+
+func recordCompletionMetricsWith(c *completionNotification, recorder completionMetricsRecorder) {
+	metricFunction := c.physicalFunctionName()
+	recorder.addCompletedInvocation(metricFunction, !c.report.IsWarmStart)
+	if !c.offloaded {
+		recorder.addFunctionDuration(metricFunction, c.report.Duration)
+		if !c.report.IsWarmStart {
+			recorder.addFunctionInitTime(metricFunction, c.report.InitTime)
+		}
+	}
+	outputSize := len(c.report.Result)
+	recorder.addFunctionOutputSize(metricFunction, float64(outputSize))
 }
 
 // SubmitRequest submits a newly arrived request for scheduling and execution
