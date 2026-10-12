@@ -402,6 +402,7 @@ func (policy *Co2QosAwarePolicy) discoverCloudCandidates(fun *function.Function)
 			MemoryAvailable:            float64(node.LocalResources.AvailableMemory()),
 			CO2Intensity:               node.LocalResources.CO2Intensity(),
 			ProcessingPowerConsumption: area.ProcessingPowerConsumption,
+			IdlePowerConsumption:       area.IdlePowerConsumption,
 			TxEnergyConsumption:        area.TxEnergyConsumption,
 			RxEnergyConsumption:        area.RxEnergyConsumption,
 		}
@@ -410,6 +411,7 @@ func (policy *Co2QosAwarePolicy) discoverCloudCandidates(fun *function.Function)
 				MemoryAvailable:            float64(status.AvailableMemory),
 				CO2Intensity:               status.CO2Intensity,
 				ProcessingPowerConsumption: status.ProcessingPowerConsumption,
+				IdlePowerConsumption:       status.IdlePowerConsumption,
 				TxEnergyConsumption:        status.TxEnergyConsumption,
 				RxEnergyConsumption:        status.RxEnergyConsumption,
 			}

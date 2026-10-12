@@ -76,6 +76,7 @@ func getCurrentStatusInformation() (status []byte, err error) {
 		Coordinates:                *VivaldiClient.GetCoordinate(),
 		CO2Intensity:               node.LocalResources.CO2Intensity(),
 		ProcessingPowerConsumption: node.LocalResources.ProcessingPower(),
+		IdlePowerConsumption:       node.LocalResources.IdlePower(),
 		TxEnergyConsumption:        node.LocalResources.TxEnergyPerByte(),
 		RxEnergyConsumption:        node.LocalResources.RxEnergyPerByte(),
 	}

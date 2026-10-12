@@ -27,6 +27,7 @@ func TestCurrentStatusInformationIncludesCO2AndExistingFields(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	viper.Set(config.PROCESSING_POWER_CONSUMPTION, 100.0)
+	viper.Set(config.IDLE_POWER_CONSUMPTION, 40.0)
 	viper.Set(config.TX_ENERGY_CONSUMPTION, 51200.0)
 	viper.Set(config.RX_ENERGY_CONSUMPTION, 30720.0)
 	node.LocalResources.Init()
@@ -56,6 +57,9 @@ func TestCurrentStatusInformationIncludesCO2AndExistingFields(t *testing.T) {
 	if status.ProcessingPowerConsumption != 100.0 {
 		t.Fatalf("ProcessingPowerConsumption = %v, want 100", status.ProcessingPowerConsumption)
 	}
+	if status.IdlePowerConsumption != 40.0 {
+		t.Fatalf("IdlePowerConsumption = %v, want 40", status.IdlePowerConsumption)
+	}
 	if status.TxEnergyConsumption != 0.0000512 {
 		t.Fatalf("TxEnergyConsumption = %v, want 0.0000512", status.TxEnergyConsumption)
 	}
@@ -67,10 +71,11 @@ func TestCurrentStatusInformationIncludesCO2AndExistingFields(t *testing.T) {
 func TestNeighborInfoUpdatePreservesAdvertisedCO2AndTimestamp(t *testing.T) {
 	neighborInfo = make(map[string]*StatusInformation)
 	updateNeighborInfoLocked("node-a", &StatusInformation{
-		CO2Intensity:    123.4,
-		TotalMemory:     2048,
-		AvailableMemory: 1024,
-		FreeMemory:      512,
+		CO2Intensity:         123.4,
+		TotalMemory:          2048,
+		AvailableMemory:      1024,
+		FreeMemory:           512,
+		IdlePowerConsumption: 55,
 	}, 99)
 
 	got := neighborInfo["node-a"]
@@ -85,6 +90,9 @@ func TestNeighborInfoUpdatePreservesAdvertisedCO2AndTimestamp(t *testing.T) {
 	}
 	if got.AvailableMemory != 1024 || got.FreeMemory != 512 {
 		t.Fatalf("memory fields not preserved: %+v", got)
+	}
+	if got.IdlePowerConsumption != 55 {
+		t.Fatalf("IdlePowerConsumption = %v, want 55", got.IdlePowerConsumption)
 	}
 }
 

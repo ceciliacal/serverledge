@@ -45,6 +45,12 @@ type AreaInfo struct {
 	// Current use: none. Future use: emissions estimation in the optimizer.
 	ProcessingPowerConsumption float64 `mapstructure:"consumption.processing.power"`
 
+	// IdlePowerConsumption is read from YAML key `consumption.idle.power`.
+	// Type: float64. Meaning: idle power consumed by nodes in this area.
+	// Unit: watts. Required: no.
+	// Current use: region-level power metadata. Future use: emissions estimation in the optimizer.
+	IdlePowerConsumption float64 `mapstructure:"consumption.idle.power"`
+
 	// TxEnergyConsumption is read from YAML key `consumption.energy.tx`.
 	// Type: float64. Meaning: transmit energy per byte for this area.
 	// Unit: joules per byte, matching the emissions package inputs.
@@ -62,6 +68,7 @@ type AreaStat struct {
 	MemoryAvailable            float64 `json:"memory_available"`
 	CO2Intensity               float64 `json:"co2_intensity"`
 	ProcessingPowerConsumption float64 `json:"processing_power_consumption"`
+	IdlePowerConsumption       float64 `json:"idle_power_consumption"`
 	TxEnergyConsumption        float64 `json:"tx_energy_consumption"`
 	RxEnergyConsumption        float64 `json:"rx_energy_consumption"`
 }

@@ -44,6 +44,7 @@ func testPolicy(t *testing.T, fun *function.Function) *Co2QosAwarePolicy {
 	viper.Set(config.POOL_MEMORY_MB, 2048)
 	viper.Set(config.POOL_CPUS, 2.0)
 	viper.Set(config.PROCESSING_POWER_CONSUMPTION, 100.0)
+	viper.Set(config.IDLE_POWER_CONSUMPTION, 40.0)
 	viper.Set(config.TX_ENERGY_CONSUMPTION, 51200.0)
 	viper.Set(config.RX_ENERGY_CONSUMPTION, 30720.0)
 	node.LocalNode = node.NodeID{Area: "edge", Key: "local", Arch: "amd64"}
@@ -102,6 +103,7 @@ func testPolicy(t *testing.T, fun *function.Function) *Co2QosAwarePolicy {
 					AvailableMemory:            4096,
 					CO2Intensity:               20,
 					ProcessingPowerConsumption: 800,
+					IdlePowerConsumption:       300,
 					TxEnergyConsumption:        0.00000512,
 					RxEnergyConsumption:        0.000003072,
 				}, nil
@@ -110,6 +112,7 @@ func testPolicy(t *testing.T, fun *function.Function) *Co2QosAwarePolicy {
 					AvailableMemory:            8192,
 					CO2Intensity:               80,
 					ProcessingPowerConsumption: 900,
+					IdlePowerConsumption:       350,
 					TxEnergyConsumption:        0.00000612,
 					RxEnergyConsumption:        0.000004072,
 				}, nil
@@ -187,7 +190,7 @@ func TestCo2QosDiscoverCloudCandidates(t *testing.T) {
 	fun := testPolicyFunction("candidates")
 	p := testPolicy(t, fun)
 
-	candidates, _ := p.discoverCloudCandidates(fun)
+	candidates, stats := p.discoverCloudCandidates(fun)
 	if len(candidates) != 2 {
 		t.Fatalf("candidates = %#v, want two compatible LB areas", candidates)
 	}
@@ -202,6 +205,9 @@ func TestCo2QosDiscoverCloudCandidates(t *testing.T) {
 	}
 	if _, ok := candidates["cloud_arm"]; ok {
 		t.Fatal("cloud_arm included despite incompatible LB architecture")
+	}
+	if stats["cloud_a"].IdlePowerConsumption != 300 {
+		t.Fatalf("cloud_a IdlePowerConsumption = %v, want 300", stats["cloud_a"].IdlePowerConsumption)
 	}
 }
 

@@ -19,10 +19,12 @@ header.intensity: "Carbon Intensity gCO₂eq/kWh (direct)"
 
 #conf Cloud:
 #consumption.processing.power: 800.0 #Watt
+#consumption.idle.power: 300.0 #Watt
 #  consumption.energy.tx: 5120.0       #nJ/byte
 #  consumption.energy.rx: 3072.0
 
 #conf Edge:
   # consumption.processing.power: 100.0
+  # consumption.idle.power: 40.0
   # consumption.energy.tx: 51200.0
 # consumption.energy.rx: 30720.0

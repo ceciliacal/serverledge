@@ -149,6 +149,25 @@ func retrieveByTaskAndNextTask(query string, api v1.API, ctx context.Context) (m
 	})
 }
 
+func cloudRegionNodeMatcher(area string) string {
+	return fmt.Sprintf(`node=~"\\(%s\\).*"`, area)
+}
+
+func cloudRegionAverageByFunctionQuery(metric string, area string) string {
+	matcher := cloudRegionNodeMatcher(area)
+	return fmt.Sprintf(
+		`avg by (function) ((sum by (function, node) (%s_sum{%s})) / (sum by (function, node) (%s_count{%s})))`,
+		metric, matcher, metric, matcher,
+	)
+}
+
+func cloudRegionColdStartProbabilityQuery(area string) string {
+	matcher := cloudRegionNodeMatcher(area)
+	coldStarts := fmt.Sprintf(`sum by (function) (%s{%s})`, COLD_STARTS, matcher)
+	completions := fmt.Sprintf(`sum by (function) (%s{%s})`, COMPLETIONS, matcher)
+	return fmt.Sprintf(`(%s / %s) and on (function) (%s > 0)`, coldStarts, completions, completions)
+}
+
 func MetricsRetriever() {
 	prometheusHost := config.GetString(config.METRICS_PROMETHEUS_HOST, "127.0.0.1")
 	prometheusPort := config.GetInt(config.METRICS_PROMETHEUS_PORT, 9090)
@@ -225,7 +244,7 @@ func MetricsRetriever() {
 			// CLOUD
 			cloudArea := config.GetString(config.REGISTRY_REMOTE_AREA, "")
 			if cloudArea != "" {
-				query = fmt.Sprintf("%s{area=\"%s\"}/%s{area=\"%s\"}", COLD_STARTS, cloudArea, COMPLETIONS, cloudArea)
+				query = cloudRegionColdStartProbabilityQuery(cloudArea)
 				coldStartProbPerFunction, err := retrieveByFunction(query, api, ctx)
 				if err != nil {
 					log.Printf("Error in retrieveByFunction: %v", err)
@@ -236,8 +255,7 @@ func MetricsRetriever() {
 				}
 				retrievedMetrics.CloudRegionColdStartProbability[cloudArea] = coldStartProbPerFunction
 
-				query = fmt.Sprintf("%s_sum{node=~\"\\\\(%s\\\\).*\"}/%s_count{node=~\"\\\\(%s\\\\).*\"}",
-					EXECUTION_TIME, cloudArea, EXECUTION_TIME, cloudArea)
+				query = cloudRegionAverageByFunctionQuery(EXECUTION_TIME, cloudArea)
 				avgFunDuration, err := retrieveByFunction(query, api, ctx)
 				if err != nil {
 					log.Printf("Error in retrieveByFunction: %v", err)
@@ -248,8 +266,7 @@ func MetricsRetriever() {
 				}
 				retrievedMetrics.AvgCloudRegionExecutionTime[cloudArea] = avgFunDuration
 
-				query = fmt.Sprintf("%s_sum{node=~\"\\\\(%s\\\\).*\"}/%s_count{node=~\"\\\\(%s\\\\).*\"}",
-					INITIALIZATION_TIME, cloudArea, INITIALIZATION_TIME, cloudArea)
+				query = cloudRegionAverageByFunctionQuery(INITIALIZATION_TIME, cloudArea)
 				avgInitTime, err := retrieveByFunction(query, api, ctx)
 				if err != nil {
 					log.Printf("Error in retrieveByFunction: %v", err)

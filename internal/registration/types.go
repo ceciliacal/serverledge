@@ -30,6 +30,7 @@ type StatusInformation struct {
 	LastUpdateTime             int64 // timestamp of last update of this information
 	CO2Intensity               float64
 	ProcessingPowerConsumption float64
+	IdlePowerConsumption       float64
 	TxEnergyConsumption        float64
 	RxEnergyConsumption        float64
 }

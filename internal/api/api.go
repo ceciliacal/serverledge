@@ -336,6 +336,7 @@ func GetServerStatus(c echo.Context) error {
 		LastUpdateTime:             time.Now().Unix(),
 		CO2Intensity:               node.LocalResources.CO2Intensity(),
 		ProcessingPowerConsumption: node.LocalResources.ProcessingPower(),
+		IdlePowerConsumption:       node.LocalResources.IdlePower(),
 		TxEnergyConsumption:        node.LocalResources.TxEnergyPerByte(),
 		RxEnergyConsumption:        node.LocalResources.RxEnergyPerByte(),
 	}

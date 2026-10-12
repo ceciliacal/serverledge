@@ -8,6 +8,7 @@ regions.file.path: "./examples/carbon/regionsBrown.yaml"
 function.offloading.qos.classes.path: "./examples/qos.yaml"
 policy.general.config.path: "./examples/carbon/co2&qosGeneralConfig.yaml"
 consumption.processing.power: 100.0
+consumption.idle.power: 40.0
 consumption.energy.tx: 51200.0
 consumption.energy.rx: 30720.0
 api.port: 1310

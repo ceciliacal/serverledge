@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/serverledge-faas/serverledge/internal/config"
+	"github.com/spf13/viper"
 )
 
 const testTimeColumn = "Datetime (UTC)"
@@ -38,6 +41,18 @@ func TestLoadCO2TraceFromCSVValid(t *testing.T) {
 	}
 	if samples[0].Time.Location() != time.UTC {
 		t.Fatalf("location = %v, want UTC", samples[0].Time.Location())
+	}
+}
+
+func TestResourcesInitLoadsIdlePowerConsumption(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set(config.IDLE_POWER_CONSUMPTION, 42.5)
+
+	LocalResources.Init()
+
+	if got := LocalResources.IdlePower(); got != 42.5 {
+		t.Fatalf("IdlePower() = %v, want 42.5", got)
 	}
 }
 

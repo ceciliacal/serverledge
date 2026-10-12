@@ -33,6 +33,9 @@ func TestLoadValidRegionConfiguration(t *testing.T) {
 	if areas[0].Name != "cloud_region_a" || areas[1].Name != "region_a" {
 		t.Fatalf("areas in file order = %#v", areas)
 	}
+	if areas[0].IdlePowerConsumption != 300 {
+		t.Fatalf("IdlePowerConsumption = %v, want 300", areas[0].IdlePowerConsumption)
+	}
 }
 
 func TestAreaLookup(t *testing.T) {
@@ -142,6 +145,7 @@ func TestBuildCloudRegionsAndDecisions(t *testing.T) {
 			Name:                       "cloud_b",
 			Cost:                       0.3,
 			ProcessingPowerConsumption: 900,
+			IdlePowerConsumption:       350,
 			TxEnergyConsumption:        0.002,
 			RxEnergyConsumption:        0.003,
 		},
@@ -149,6 +153,7 @@ func TestBuildCloudRegionsAndDecisions(t *testing.T) {
 			Name:                       "cloud_a",
 			Cost:                       0.2,
 			ProcessingPowerConsumption: 800,
+			IdlePowerConsumption:       300,
 			TxEnergyConsumption:        0.004,
 			RxEnergyConsumption:        0.005,
 		},

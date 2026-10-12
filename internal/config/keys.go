@@ -125,6 +125,9 @@ const METRICS_LOAD_JSON_FILE = "metrics.load.json.file"
 // Processing power consumed by the local node, in watts.
 const PROCESSING_POWER_CONSUMPTION = "consumption.processing.power"
 
+// Idle power consumed by the local node, in watts.
+const IDLE_POWER_CONSUMPTION = "consumption.idle.power"
+
 // Local node transmit energy, configured in nJ/byte and exposed internally as J/byte.
 const TX_ENERGY_CONSUMPTION = "consumption.energy.tx"
 

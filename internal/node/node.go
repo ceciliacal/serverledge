@@ -47,6 +47,7 @@ type Resources struct {
 	containerPools             map[string]*ContainerPool
 	Co2Footprint               CarbonFootprint
 	ProcessingPowerConsumption float64
+	IdlePowerConsumption       float64
 	TxEnergyConsumption        float64
 	RxEnergyConsumption        float64
 }
@@ -57,6 +58,7 @@ func (n *Resources) Init() {
 	n.totalMemory = int64(config.GetInt(config.POOL_MEMORY_MB, 1024))
 	n.containerPools = make(map[string]*ContainerPool)
 	n.ProcessingPowerConsumption = config.GetFloat(config.PROCESSING_POWER_CONSUMPTION, 0)
+	n.IdlePowerConsumption = config.GetFloat(config.IDLE_POWER_CONSUMPTION, 0)
 	n.TxEnergyConsumption = config.GetFloat(config.TX_ENERGY_CONSUMPTION, 0) / 1e9
 	n.RxEnergyConsumption = config.GetFloat(config.RX_ENERGY_CONSUMPTION, 0) / 1e9
 }
@@ -100,6 +102,10 @@ func (n *Resources) CO2Intensity() float64 {
 
 func (n *Resources) ProcessingPower() float64 {
 	return n.ProcessingPowerConsumption
+}
+
+func (n *Resources) IdlePower() float64 {
+	return n.IdlePowerConsumption
 }
 
 func (n *Resources) TxEnergyPerByte() float64 {
